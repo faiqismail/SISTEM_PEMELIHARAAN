@@ -8,7 +8,6 @@ ini_set('memory_limit', '512M'); // Naikkan memory limit jika perlu
 
 // Ambil parameter filter periode
 $analysis_period = isset($_GET['period']) ? (int)$_GET['period'] : 12; // Default 12 bulan
-$limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 20;
 
 // Hitung tanggal batas berdasarkan periode
 $date_limit = date('Y-m-d H:i:s', strtotime("-$analysis_period months"));
@@ -223,8 +222,89 @@ foreach ($vehicles as $nopol => $data) {
 foreach ($rekanan_stats as $name => &$stat) {
     $stat['avg_downtime'] = $stat['count'] > 0 ? $stat['total_downtime'] / $stat['count'] : 0;
 }
+unset($stat);
 
+// Simpan daftar bidang dari SELURUH data (buat isi dropdown filter, biar opsinya selalu lengkap)
+$all_bidangs = array_unique(array_filter(array_column($vehicle_stats, 'bidang')));
+sort($all_bidangs);
+
+// ===== FILTER (berlaku ke SELURUH data, sebelum pagination) =====
+$f_search = isset($_GET['search']) ? trim($_GET['search']) : '';
+$f_status = isset($_GET['status']) ? trim($_GET['status']) : '';
+$f_bidang = isset($_GET['bidang']) ? trim($_GET['bidang']) : '';
+$f_rekanan = isset($_GET['rekanan']) ? trim($_GET['rekanan']) : '';
+$f_tgl_dari = isset($_GET['tgl_dari']) ? trim($_GET['tgl_dari']) : '';
+$f_tgl_sampai = isset($_GET['tgl_sampai']) ? trim($_GET['tgl_sampai']) : '';
+
+$has_filter = ($f_search !== '' || $f_status !== '' || $f_bidang !== '' || $f_rekanan !== '' || $f_tgl_dari !== '' || $f_tgl_sampai !== '');
+
+if ($has_filter) {
+    $filtered = [];
+    foreach ($vehicle_stats as $nopol => $stat) {
+        if ($f_search !== '' && stripos($nopol, $f_search) === false) {
+            continue;
+        }
+        if ($f_status !== '' && $stat['status'] !== $f_status) {
+            continue;
+        }
+        if ($f_bidang !== '' && $stat['bidang'] !== $f_bidang) {
+            continue;
+        }
+        if ($f_rekanan !== '') {
+            $match_rekanan = false;
+            foreach ($stat['repairs'] as $r) {
+                if (($r['nama_rekanan'] ?? '') === $f_rekanan) {
+                    $match_rekanan = true;
+                    break;
+                }
+            }
+            if (!$match_rekanan) continue;
+        }
+        if ($f_tgl_dari !== '' || $f_tgl_sampai !== '') {
+            $match_date = false;
+            foreach ($stat['repairs'] as $r) {
+                if (!$r['tgl_pengajuan']) continue;
+                $rd = substr($r['tgl_pengajuan'], 0, 10);
+                if ($f_tgl_dari !== '' && $rd < $f_tgl_dari) continue;
+                if ($f_tgl_sampai !== '' && $rd > $f_tgl_sampai) continue;
+                $match_date = true;
+                break;
+            }
+            if (!$match_date) continue;
+        }
+        $filtered[$nopol] = $stat;
+    }
+    $vehicle_stats = $filtered;
+}
+
+// Status count dihitung ulang berdasarkan hasil filter (atau seluruh data jika tidak ada filter)
+$status_count = ['Stabil' => 0, 'Perlu Perhatian' => 0, 'Sering Rusak' => 0, 'Data Lama' => 0];
+foreach ($vehicle_stats as $stat) {
+    $status_count[$stat['status']]++;
+}
+// ===== END FILTER =====
+
+// $total_vehicles dihitung dari data yang SUDAH difilter (semua data, bukan cuma 1 halaman)
 $total_vehicles = count($vehicle_stats);
+
+// ===== PAGINATION (khusus untuk daftar kartu kendaraan) =====
+$per_page = 50;
+$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+$total_pages = max(1, (int)ceil($total_vehicles / $per_page));
+if ($page > $total_pages) {
+    $page = $total_pages;
+}
+$offset = ($page - 1) * $per_page;
+$vehicle_stats_paged = array_slice($vehicle_stats, $offset, $per_page, true);
+
+// Helper untuk build URL pagination, tetap bawa parameter GET lain (period, filter, dll)
+function buildPageUrl($targetPage) {
+    $params = $_GET;
+    $params['page'] = $targetPage;
+    return '?' . http_build_query($params);
+}
+// ===== END PAGINATION =====
+
 include "navbar.php";
 ?>
 
@@ -489,6 +569,7 @@ include "navbar.php";
             justify-content: center;
             gap: 8px;
             white-space: nowrap;
+            text-decoration: none;
         }
 
         .btn-primary {
@@ -799,6 +880,56 @@ include "navbar.php";
         @media (max-width: 640px) {
             .hide-mobile { display: none; }
         }
+
+        /* ===== PAGINATION ===== */
+        .pagination-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .pagination-info {
+            font-size: clamp(11px, 2.5vw, 13px);
+            color: #555;
+            font-weight: 600;
+        }
+        .pagination-links {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .page-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 36px;
+            height: 36px;
+            padding: 0 10px;
+            border-radius: 8px;
+            background: #f8f9fa;
+            color: #2c3e50;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+            border: 1px solid #e0e0e0;
+            transition: all 0.2s ease;
+        }
+        .page-link:hover {
+            background: rgb(9, 120, 83);
+            color: white;
+            border-color: rgb(9, 120, 83);
+        }
+        .page-link.active {
+            background: rgb(9, 120, 83);
+            color: white;
+            border-color: rgb(9, 120, 83);
+            cursor: default;
+        }
+        @media (max-width: 640px) {
+            .pagination-container { flex-direction: column; align-items: flex-start; }
+        }
     </style>
 </head>
 <body>
@@ -839,7 +970,7 @@ include "navbar.php";
             </div>
         </div>
 
-        <!-- Stats -->
+        <!-- Stats (dihitung dari hasil filter yang aktif, mencakup SEMUA halaman) -->
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-value"><?php echo $status_count['Stabil']; ?></div>
@@ -855,7 +986,7 @@ include "navbar.php";
             </div>
             <div class="stat-card">
                 <div class="stat-value"><?php echo $total_vehicles; ?></div>
-                <div class="stat-label">Aset Ber-Riwayat</div>
+                <div class="stat-label">Asset Ber-Riwayat</div>
             </div>
         </div>
 
@@ -930,72 +1061,60 @@ include "navbar.php";
             </div>
         </div>
 
-        <!-- Limit Selector -->
-        <div class="card">
-            <div class="limit-selector">
-                <label>📊 Tampilkan:</label>
-                <button class="limit-btn <?php echo $limit == 20 ? 'active' : ''; ?>" onclick="setLimit(20)">20</button>
-                <button class="limit-btn <?php echo $limit == 50 ? 'active' : ''; ?>" onclick="setLimit(50)">50</button>
-                <button class="limit-btn <?php echo $limit == 100 ? 'active' : ''; ?>" onclick="setLimit(100)">100</button>
-                <button class="limit-btn <?php echo $limit == 200 ? 'active' : ''; ?>" onclick="setLimit(200)">200</button>
-                <button class="limit-btn <?php echo $limit == 300 ? 'active' : ''; ?>" onclick="setLimit(300)">300</button>
-                <button class="limit-btn <?php echo $limit == 9999 ? 'active' : ''; ?>" onclick="setLimit(9999)">Semua</button>
-                <span style="color: #666; font-size: clamp(11px, 2.5vw, 13px);" class="hide-mobile">Total: <?php echo count($vehicle_stats); ?></span>
-            </div>
-        </div>
-
-        <!-- Filter -->
+        <!-- Filter (server-side, berlaku ke SEMUA data) -->
         <div class="card">
             <div class="card-title">🔍 Filter Data</div>
-            <div class="filter-grid">
-                <div class="filter-group">
-                    <label>📅 Tanggal Dari</label>
-                    <input type="date" class="filter-input" id="filterDateFrom">
+            <form method="GET" id="filterForm">
+                <input type="hidden" name="period" value="<?php echo $analysis_period; ?>">
+                <div class="filter-grid">
+                    <div class="filter-group">
+                        <label>📅 Tanggal Dari</label>
+                        <input type="date" name="tgl_dari" class="filter-input" id="filterDateFrom" value="<?php echo htmlspecialchars($f_tgl_dari); ?>">
+                    </div>
+                    <div class="filter-group">
+                        <label>📅 Tanggal Sampai</label>
+                        <input type="date" name="tgl_sampai" class="filter-input" id="filterDateTo" value="<?php echo htmlspecialchars($f_tgl_sampai); ?>">
+                    </div>
+                    <div class="filter-group">
+                        <label>🔍 Cari Asset</label>
+                        <input type="text" name="search" class="filter-input" id="filterNopol" placeholder="Ketik Asset..." value="<?php echo htmlspecialchars($f_search); ?>">
+                    </div>
+                    <div class="filter-group">
+                        <label>📊 Status</label>
+                        <select name="status" class="filter-input" id="filterStatus">
+                            <option value="">Semua Status</option>
+                            <option value="Stabil" <?php echo $f_status == 'Stabil' ? 'selected' : ''; ?>>Stabil</option>
+                            <option value="Perlu Perhatian" <?php echo $f_status == 'Perlu Perhatian' ? 'selected' : ''; ?>>Perlu Perhatian</option>
+                            <option value="Sering Rusak" <?php echo $f_status == 'Sering Rusak' ? 'selected' : ''; ?>>Sering Rusak</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>🏢 Bidang</label>
+                        <select name="bidang" class="filter-input" id="filterBidang">
+                            <option value="">Semua Bidang</option>
+                            <?php foreach ($all_bidangs as $bidang): ?>
+                                <option value="<?php echo htmlspecialchars($bidang); ?>" <?php echo $f_bidang == $bidang ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($bidang); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>🔧 Rekanan</label>
+                        <select name="rekanan" class="filter-input" id="filterRekanan">
+                            <option value="">Semua Rekanan</option>
+                            <?php foreach (array_keys($rekanan_stats) as $rekanan): ?>
+                                <option value="<?php echo htmlspecialchars($rekanan); ?>" <?php echo $f_rekanan == $rekanan ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($rekanan); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                 </div>
-                <div class="filter-group">
-                    <label>📅 Tanggal Sampai</label>
-                    <input type="date" class="filter-input" id="filterDateTo">
+                <div class="mt-15 text-center">
+                    <a href="?period=<?php echo $analysis_period; ?>" class="btn btn-reset">🔄 Reset Filter</a>
                 </div>
-                <div class="filter-group">
-                    <label>🔍 Cari Asset</label>
-                    <input type="text" class="filter-input" id="filterNopol" placeholder="Ketik Asset...">
-                </div>
-                <div class="filter-group">
-                    <label>📊 Status</label>
-                    <select class="filter-input" id="filterStatus">
-                        <option value="">Semua Status</option>
-                        <option value="Stabil">Stabil</option>
-                        <option value="Perlu Perhatian">Perlu Perhatian</option>
-                        <option value="Sering Rusak">Sering Rusak</option>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label>🏢 Bidang</label>
-                    <select class="filter-input" id="filterBidang">
-                        <option value="">Semua Bidang</option>
-                        <?php
-                        $bidangs = array_unique(array_filter(array_column($vehicle_stats, 'bidang')));
-                        foreach ($bidangs as $bidang) {
-                            echo "<option value='" . htmlspecialchars($bidang) . "'>" . htmlspecialchars($bidang) . "</option>";
-                        }
-                        ?>
-                    </select>
-                </div>
-                <div class="filter-group">
-                    <label>🔧 Rekanan</label>
-                    <select class="filter-input" id="filterRekanan">
-                        <option value="">Semua Rekanan</option>
-                        <?php
-                        foreach (array_keys($rekanan_stats) as $rekanan) {
-                            echo "<option value='" . htmlspecialchars($rekanan) . "'>" . htmlspecialchars($rekanan) . "</option>";
-                        }
-                        ?>
-                    </select>
-                </div>
-            </div>
-            <div class="mt-15 text-center">
-                <button class="btn btn-reset" onclick="resetFilters()">🔄 Reset Filter</button>
-            </div>
+            </form>
         </div>
 
         <!-- Rekanan Performance Stats -->
@@ -1157,13 +1276,49 @@ include "navbar.php";
             </div>
         </div>
 
+        <!-- Pagination Info (atas) -->
+        <div class="card">
+            <div class="pagination-container">
+                <div class="pagination-info">
+                    📄 Menampilkan <?php echo count($vehicle_stats_paged); ?> dari <?php echo $total_vehicles; ?> kendaraan
+                    <?php echo $has_filter ? '(sesuai filter)' : ''; ?>
+                    <?php if ($total_pages > 1): ?>
+                        — Halaman <?php echo $page; ?> dari <?php echo $total_pages; ?>
+                    <?php endif; ?>
+                </div>
+                <?php if ($total_pages > 1): ?>
+                <div class="pagination-links">
+                    <?php if ($page > 1): ?>
+                        <a href="<?= buildPageUrl(1) ?>" class="page-link" title="Halaman awal">&laquo;</a>
+                        <a href="<?= buildPageUrl($page - 1) ?>" class="page-link" title="Sebelumnya">&lsaquo;</a>
+                    <?php endif; ?>
+                    <?php
+                    $start = max(1, $page - 2);
+                    $end = min($total_pages, $page + 2);
+                    for ($i = $start; $i <= $end; $i++):
+                    ?>
+                        <?php if ($i == $page): ?>
+                            <span class="page-link active"><?= $i ?></span>
+                        <?php else: ?>
+                            <a href="<?= buildPageUrl($i) ?>" class="page-link"><?= $i ?></a>
+                        <?php endif; ?>
+                    <?php endfor; ?>
+                    <?php if ($page < $total_pages): ?>
+                        <a href="<?= buildPageUrl($page + 1) ?>" class="page-link" title="Berikutnya">&rsaquo;</a>
+                        <a href="<?= buildPageUrl($total_pages) ?>" class="page-link" title="Halaman akhir">&raquo;</a>
+                    <?php endif; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+
         <!-- Vehicles -->
         <div id="vehicleList">
-            <?php if (count($vehicle_stats) > 0): ?>
+            <?php if (count($vehicle_stats_paged) > 0): ?>
                 <?php 
                 $max_timeline_items = 100; // Batasi timeline untuk performa
                 
-                foreach ($vehicle_stats as $nopol => $stat): 
+                foreach ($vehicle_stats_paged as $nopol => $stat): 
                     $bg_class = '';
                     if ($stat['status'] == 'Stabil') $bg_class = 'bg-stabil';
                     elseif ($stat['status'] == 'Perlu Perhatian') $bg_class = 'bg-perhatian';
@@ -1203,10 +1358,7 @@ include "navbar.php";
                         $avg_down_format = $minutes . ' menit';
                     }
                 ?>
-                <div class="vehicle-card <?php echo $bg_class; ?>" data-nopol="<?php echo htmlspecialchars($nopol); ?>" 
-                     data-status="<?php echo htmlspecialchars($stat['status']); ?>"
-                     data-bidang="<?php echo htmlspecialchars($stat['bidang']); ?>"
-                     data-repairs='<?php echo json_encode($stat['repairs']); ?>'>
+                <div class="vehicle-card <?php echo $bg_class; ?>" data-nopol="<?php echo htmlspecialchars($nopol); ?>">
                     <div class="vehicle-header">
                         <div class="vehicle-nopol"><?php echo htmlspecialchars($nopol); ?></div>
                         
@@ -1303,10 +1455,42 @@ include "navbar.php";
             <?php else: ?>
                 <div class="no-data">
                     <h3>📭 Tidak ada data kendaraan</h3>
-                    <p>Belum ada riwayat perbaikan yang tercatat</p>
+                    <p><?php echo $has_filter ? 'Tidak ada kendaraan yang sesuai dengan filter' : 'Belum ada riwayat perbaikan yang tercatat'; ?></p>
                 </div>
             <?php endif; ?>
         </div>
+
+        <!-- Pagination Info (bawah) -->
+        <?php if ($total_pages > 1): ?>
+        <div class="card">
+            <div class="pagination-container">
+                <div class="pagination-info">
+                    Halaman <?php echo $page; ?> dari <?php echo $total_pages; ?> (<?php echo $total_vehicles; ?> total kendaraan<?php echo $has_filter ? ' sesuai filter' : ''; ?>)
+                </div>
+                <div class="pagination-links">
+                    <?php if ($page > 1): ?>
+                        <a href="<?= buildPageUrl(1) ?>" class="page-link" title="Halaman awal">&laquo;</a>
+                        <a href="<?= buildPageUrl($page - 1) ?>" class="page-link" title="Sebelumnya">&lsaquo;</a>
+                    <?php endif; ?>
+                    <?php
+                    $start = max(1, $page - 2);
+                    $end = min($total_pages, $page + 2);
+                    for ($i = $start; $i <= $end; $i++):
+                    ?>
+                        <?php if ($i == $page): ?>
+                            <span class="page-link active"><?= $i ?></span>
+                        <?php else: ?>
+                            <a href="<?= buildPageUrl($i) ?>" class="page-link"><?= $i ?></a>
+                        <?php endif; ?>
+                    <?php endfor; ?>
+                    <?php if ($page < $total_pages): ?>
+                        <a href="<?= buildPageUrl($page + 1) ?>" class="page-link" title="Berikutnya">&rsaquo;</a>
+                        <a href="<?= buildPageUrl($total_pages) ?>" class="page-link" title="Halaman akhir">&raquo;</a>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
 
     <script>
@@ -1481,13 +1665,7 @@ include "navbar.php";
         function setPeriod(months) {
             const url = new URL(window.location.href);
             url.searchParams.set('period', months);
-            url.searchParams.delete('limit');
-            window.location.href = url.toString();
-        }
-
-        function setLimit(limit) {
-            const url = new URL(window.location.href);
-            url.searchParams.set('limit', limit);
+            url.searchParams.delete('page'); // reset ke halaman 1 saat ganti periode
             window.location.href = url.toString();
         }
 
@@ -1504,82 +1682,17 @@ include "navbar.php";
             }
         }
 
-        function resetFilters() {
-            document.getElementById('filterDateFrom').value = '';
-            document.getElementById('filterDateTo').value = '';
-            document.getElementById('filterNopol').value = '';
-            document.getElementById('filterStatus').value = '';
-            document.getElementById('filterBidang').value = '';
-            document.getElementById('filterRekanan').value = '';
-            applyFilters();
-        }
-
-        const filterDateFrom = document.getElementById('filterDateFrom');
-        const filterDateTo = document.getElementById('filterDateTo');
-        const filterNopol = document.getElementById('filterNopol');
-        const filterStatus = document.getElementById('filterStatus');
-        const filterBidang = document.getElementById('filterBidang');
-        const filterRekanan = document.getElementById('filterRekanan');
-
-        function applyFilters() {
-            const dateFromValue = filterDateFrom.value;
-            const dateToValue = filterDateTo.value;
-            const nopolValue = filterNopol.value.toLowerCase();
-            const statusValue = filterStatus.value;
-            const bidangValue = filterBidang.value;
-            const rekananValue = filterRekanan.value;
-            
-            const cards = document.querySelectorAll('.vehicle-card');
-            
-            cards.forEach(card => {
-                const nopol = card.dataset.nopol.toLowerCase();
-                const status = card.dataset.status;
-                const bidang = card.dataset.bidang;
-                const repairs = JSON.parse(card.dataset.repairs || '[]');
-                
-                const matchNopol = nopol.includes(nopolValue);
-                const matchStatus = !statusValue || status === statusValue;
-                const matchBidang = !bidangValue || bidang === bidangValue;
-                
-                let matchDate = true;
-                let matchRekanan = true;
-                
-                if (dateFromValue || dateToValue || rekananValue) {
-                    matchDate = false;
-                    matchRekanan = rekananValue ? false : true;
-                    
-                    repairs.forEach(repair => {
-                        const repairDate = new Date(repair.tgl_pengajuan);
-                        const fromDate = dateFromValue ? new Date(dateFromValue) : null;
-                        const toDate = dateToValue ? new Date(dateToValue) : null;
-                        
-                        const dateInRange = (!fromDate || repairDate >= fromDate) && 
-                                          (!toDate || repairDate <= toDate);
-                        
-                        if (dateInRange) {
-                            matchDate = true;
-                        }
-                        
-                        if (rekananValue && repair.nama_rekanan === rekananValue) {
-                            matchRekanan = true;
-                        }
-                    });
-                }
-                
-                if (matchNopol && matchStatus && matchBidang && matchDate && matchRekanan) {
-                    card.style.display = 'block';
-                } else {
-                    card.style.display = 'none';
-                }
-            });
-        }
-
-        filterDateFrom.addEventListener('change', applyFilters);
-        filterDateTo.addEventListener('change', applyFilters);
-        filterNopol.addEventListener('input', applyFilters);
-        filterStatus.addEventListener('change', applyFilters);
-        filterBidang.addEventListener('change', applyFilters);
-        filterRekanan.addEventListener('change', applyFilters);
+        // Filter dikirim ke server (mencakup SEMUA data, bukan cuma halaman yang tampil)
+        let searchTimeout;
+        document.getElementById('filterNopol').addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => { document.getElementById('filterForm').submit(); }, 800);
+        });
+        document.getElementById('filterDateFrom').addEventListener('change', function() { document.getElementById('filterForm').submit(); });
+        document.getElementById('filterDateTo').addEventListener('change', function() { document.getElementById('filterForm').submit(); });
+        document.getElementById('filterStatus').addEventListener('change', function() { document.getElementById('filterForm').submit(); });
+        document.getElementById('filterBidang').addEventListener('change', function() { document.getElementById('filterForm').submit(); });
+        document.getElementById('filterRekanan').addEventListener('change', function() { document.getElementById('filterForm').submit(); });
     </script>
 </body>
 </html>

@@ -1,0 +1,82 @@
+LOGIN USER 
+
+USERNAME :admin
+PASSWORD :123
+
+
+// untuk Update Tambahkan sql ini 
+# penambahan SQL
+
+ALTER TABLE users 
+ADD COLUMN nama VARCHAR(100) NOT NULL DEFAULT '-' AFTER username,
+ADD COLUMN jabatan VARCHAR(100) NOT NULL DEFAULT '-' AFTER nama;
+ADD COLUMN bidang VARCHAR(100) NULL DEFAULT NULL AFTER role;  
+
+ALTER TABLE permintaan_perbaikan 
+ADD COLUMN admin_qc INT NULL AFTER admin_karu_qc;
+
+
+
+/// noted
+
+- ubah atau tambahkan script yang terbaru untuk menyimpanan kode qr baik untuk folder upload jangan di rubah di server agar tidak erorr atau data hilang yang lama
+- ada penambahan atau perubahan di folder berikut :
+- folder database_sql_laragon
+- folder  halaman_admin
+- folder  halaman_pengawas
+- folder inc 
+- index.php
+- untuk folder uploads jangan di rubah yang sudah di server 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+****** penambahan fitur yang telah di kerjakan 
+
+Berikut ringkasan fitur baru yang ditambahkan:
+
+**Database**
+- Tambah kolom `nama`, `jabatan`, `bidang` di tabel users
+- Tambah kolom `admin_qc` di tabel permintaan_perbaikan
+
+**Folder Admin**
+- Print sparepart (halaman baru: `print_sparepart.php`)
+- Dashboard kendaraan (halaman baru, dengan pagination limit 50)
+- Nama & jabatan ditambahkan di user management dan navbar
+- Perbaikan tracking di berbagai modul (SA, QC, Karu, riwayat)
+- Fix bug halaman "dalam proses" yang tidak muncul
+- Filter tanggal (dari-sampai) di riwayat perbaikan unit
+- Fitur export/import Excel + checklist aktif/nonaktif massal untuk: rekanan, asset, jasa, sparepart
+- Aturan: harga yang sudah pernah dipakai di transaksi tidak bisa diedit, hanya bisa dinonaktifkan lalu buat data baru (menjaga konsistensi pembukuan)
+- Auto kapitalisasi huruf pada input
+- Pagination di berbagai halaman (riwayat, kondisi asset, dll) untuk mengurangi beban server
+- Fix internal server error 500 di riwayat_rekanan.php
+
+**Folder Pengawas**
+- Dashboard kendaraan (baru)
+- Role "Pengawas" diganti label jadi "Unit" (tampilan saja, database tetap sama)
+- Nama & jabatan di navbar/profil
+- Catatan di persetujuan pengawas dibuat opsional
+- Fitur "ready kendaraan" per wilayah
+- Pagination sudah lengkap di semua halaman
+- Tracking riwayat & detail pengajuan diperbaiki
+
+**Alur Kerja**
+- Setelah disetujui QC, otomatis lanjut ke pengawas tanpa perlu klik manual
+- Akses berbasis bidang: role admin lihat semua bidang, role unit/pengawas hanya bidang miliknya (butuh setting akses awal)
+- Label "Pemeliharaan" mengganti istilah lama di sisi admin (tampilan saja)
+- Perbaikan data mismatch jumlah proses antar dashboard (kasus 1 unit dobel permintaan)
+- Riwayat perbaikan kini menampilkan semua user dengan akses bidang terkait (bukan hanya id_pengaju)
+- Tampilan "menunggu persetujuan" pakai nama, bukan username
+- Dashboard pengajuan menampilkan juga status "ditolak unit"
+

@@ -16,8 +16,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $username = trim($_POST['username']);
     $password = $_POST['password'];
 
-    // Query mengambil data user beserta status
-    $sql = "SELECT id_user, username, password, role, status FROM users WHERE username = ? LIMIT 1";
+    // === TAMBAHAN BIDANG: query ditambah kolom bidang ===
+    $sql = "SELECT id_user, username, password, role, status, nama, jabatan, bidang FROM users WHERE username = ? LIMIT 1";
     $stmt = $connection->prepare($sql);
     $stmt->bind_param("s", $username);
     $stmt->execute();
@@ -31,43 +31,52 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $error_message = "account_inactive";
         } else if (password_verify($password, $user['password'])) {
 
-            // Multi-tab: pakai tab_id dari URL (tab ini), jangan generate baru / cookie
-            $tab_id = get_armada_tab_id();
-
-            session_write_close();
-
-            $sessionName = 'ARMADA_' . strtoupper($user['role']) . '_' . $tab_id;
-            session_name($sessionName);
-            session_start();
-            session_regenerate_id(true);
-
-            $db_token = createDbSession($user['id_user'], $user['role']);
-
-            $_SESSION['id_login'] = $user['id_user'];
-            $_SESSION['id_user']  = $user['id_user'];
-            $_SESSION['username'] = $user['username'];
-            $_SESSION['role']     = $user['role'];
-            $_SESSION['db_token'] = $db_token;
-            $_SESSION['tab_id']   = $tab_id;
-
-            // Redirect dengan URL yang bawa armada_tab agar tab ini tetap pakai session ini
-            $redir = [
-                'admin' => 'halaman_admin/dasboard.php',
-                'pengawas' => 'halaman_pengawas/pengajuan_perbaikan.php',
-                'angkutan_dalam' => 'halaman_angkutan_dalam/dasboard.php',
-                'angkutan_luar' => 'halaman_angkutan_luar/dasboard.php',
-                'alat_berat_wilayah_1' => 'halaman_alat_berat_wilayah_1/dasboard.php',
-                'alat_berat_wilayah_2' => 'halaman_alat_berat_wilayah_2/dasboard.php',
-                'alat_berat_wilayah_3' => 'halaman_alat_berat_wilayah_3/dasboard.php',
-                'pergudangan' => 'halaman_Pergudangan/dasboard.php',
-            ];
-            $path = $redir[$user['role']] ?? null;
-            if ($path) {
-                header('Location: ' . url_with_tab($path));
+            // === TAMBAHAN BIDANG: role pengawas (Unit) wajib sudah punya bidang sebelum bisa login ===
+            if ($user['role'] === 'pengawas' && empty($user['bidang'])) {
+                $error_message = "bidang_belum_diset";
             } else {
-                die("Role tidak valid");
+
+                // Multi-tab: pakai tab_id dari URL (tab ini), jangan generate baru / cookie
+                $tab_id = get_armada_tab_id();
+
+                session_write_close();
+
+                $sessionName = 'ARMADA_' . strtoupper($user['role']) . '_' . $tab_id;
+                session_name($sessionName);
+                session_start();
+                session_regenerate_id(true);
+
+                $db_token = createDbSession($user['id_user'], $user['role']);
+
+                $_SESSION['id_login'] = $user['id_user'];
+                $_SESSION['id_user']  = $user['id_user'];
+                $_SESSION['username'] = $user['username'];
+                $_SESSION['nama']     = $user['nama'];
+                $_SESSION['jabatan']  = $user['jabatan'];
+                $_SESSION['role']     = $user['role'];
+                $_SESSION['bidang']   = $user['bidang']; // === TAMBAHAN BIDANG: simpan bidang ke session ===
+                $_SESSION['db_token'] = $db_token;
+                $_SESSION['tab_id']   = $tab_id;
+
+                // Redirect dengan URL yang bawa armada_tab agar tab ini tetap pakai session ini
+                $redir = [
+                    'admin' => 'halaman_admin/dasboard.php',
+                    'pengawas' => 'halaman_pengawas/pengajuan_perbaikan.php',
+                    'angkutan_dalam' => 'halaman_angkutan_dalam/dasboard.php',
+                    'angkutan_luar' => 'halaman_angkutan_luar/dasboard.php',
+                    'alat_berat_wilayah_1' => 'halaman_alat_berat_wilayah_1/dasboard.php',
+                    'alat_berat_wilayah_2' => 'halaman_alat_berat_wilayah_2/dasboard.php',
+                    'alat_berat_wilayah_3' => 'halaman_alat_berat_wilayah_3/dasboard.php',
+                    'pergudangan' => 'halaman_Pergudangan/dasboard.php',
+                ];
+                $path = $redir[$user['role']] ?? null;
+                if ($path) {
+                    header('Location: ' . url_with_tab($path));
+                } else {
+                    die("Role tidak valid");
+                }
+                exit;
             }
-            exit;
 
         } else {
             $error_message = "Password salah";
@@ -318,6 +327,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             animation: shake 0.4s;
         }
 
+        /* === TAMBAHAN BIDANG: alert khusus untuk bidang belum diset === */
+        .bidang-alert {
+            padding: 15px 18px;
+            background: #fff3cd;
+            border-left: 4px solid #fd7e14;
+            border-radius: 8px;
+            color: #7a4a0a;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: flex-start;
+            animation: shake 0.4s;
+        }
+
         @keyframes shake {
             0%, 100% { transform: translateX(0); }
             25% { transform: translateX(-10px); }
@@ -338,7 +360,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         .error-alert i,
         .warning-alert i,
         .info-alert i,
-        .inactive-alert i {
+        .inactive-alert i,
+        .bidang-alert i {
             margin-right: 12px;
             font-size: 20px;
             flex-shrink: 0;
@@ -593,7 +616,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             .error-alert,
             .warning-alert,
             .info-alert,
-            .inactive-alert {
+            .inactive-alert,
+            .bidang-alert {
                 padding: 12px 15px;
             }
 
@@ -690,6 +714,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         <p>Akun Anda telah dinonaktifkan oleh administrator. Silakan hubungi admin untuk mengaktifkan kembali akun Anda.</p>
                     </div>
                 </div>
+            <?php elseif ($error_message === 'bidang_belum_diset'): ?>
+                <!-- === TAMBAHAN BIDANG: alert khusus jika bidang user belum diset === -->
+                <div class="bidang-alert">
+                    <i class="fas fa-building-circle-exclamation"></i>
+                    <div class="alert-content">
+                        <strong>Bidang Belum Diset!</strong>
+                        <p>Akun Anda belum memiliki akses bidang. Segera hubungi tim Pemeliharaan untuk diberikan akses bidang.</p>
+                    </div>
+                </div>
             <?php elseif ($error_message): ?>
                 <div class="error-alert">
                     <i class="fas fa-exclamation-circle"></i>
@@ -766,7 +799,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         // Auto-hide alert after 10 seconds
         window.onload = function() {
-            const alerts = document.querySelectorAll('.warning-alert, .error-alert, .info-alert, .inactive-alert');
+            const alerts = document.querySelectorAll('.warning-alert, .error-alert, .info-alert, .inactive-alert, .bidang-alert');
             alerts.forEach(alert => {
                 setTimeout(() => {
                     alert.style.transition = 'opacity 0.5s ease-out';

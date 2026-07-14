@@ -6,49 +6,60 @@ $id_permintaan = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $jenis = isset($_GET['jenis']) ? $_GET['jenis'] : 'all'; // all, jasa, sparepart
 
 // ==========================
-// AMBIL ID PERMINTAAN
-// ==========================
-$id_permintaan = isset($_GET['id']) ? intval($_GET['id']) : 0;
-
-// ==========================
 // CEK ID PERMINTAAN
 // ==========================
 if ($id_permintaan <= 0) {
     die("❌ ID Permintaan tidak valid atau tidak ditemukan");
 }
+
 // Query data permintaan dengan semua relasi
+// CATATAN PERBAIKAN:
+// - u_karu di-join ke admin_karu_qc (untuk approval "DISETUJUI")
+// - u_qc di-join ke admin_qc (bukan lagi ke admin_karu_qc, ini bug lama)
 $query = "
     SELECT 
         p.*,
         k.nopol, k.jenis_kendaraan, k.bidang,
         r.nama_rekanan, r.ttd_rekanan,
-        u_driver.username AS driver_nama, u_driver.ttd AS driver_ttd,
-        u_sa.username AS sa_nama, u_sa.ttd AS sa_ttd,
-        u_karu.username AS karu_nama, u_karu.ttd AS karu_ttd,
-        u_qc.username AS qc_nama, u_qc.ttd AS qc_ttd
+        u_driver.nama AS driver_nama, u_driver.jabatan AS driver_jabatan, u_driver.ttd AS driver_ttd,
+        u_sa.nama AS sa_nama, u_sa.jabatan AS sa_jabatan, u_sa.ttd AS sa_ttd,
+        u_karu.nama AS karu_nama, u_karu.jabatan AS karu_jabatan, u_karu.ttd AS ttd_karu_qc,
+        u_qc.nama AS qc_nama, u_qc.jabatan AS qc_jabatan, u_qc.ttd AS ttd_qc
     FROM permintaan_perbaikan p
     LEFT JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
     LEFT JOIN rekanan r ON p.id_rekanan = r.id_rekanan
     LEFT JOIN users u_driver ON p.id_pengaju = u_driver.id_user
     LEFT JOIN users u_sa ON p.admin_sa = u_sa.id_user
     LEFT JOIN users u_karu ON p.admin_karu_qc = u_karu.id_user
-    LEFT JOIN users u_qc ON p.admin_karu_qc = u_qc.id_user
-    WHERE p.id_permintaan = '$id_permintaan'
+    LEFT JOIN users u_qc ON p.admin_qc = u_qc.id_user
+    WHERE p.id_permintaan = ?
 ";
-$data = mysqli_fetch_assoc(mysqli_query($connection, $query));
+$stmt = mysqli_prepare($connection, $query);
+mysqli_stmt_bind_param($stmt, "i", $id_permintaan);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$data = mysqli_fetch_assoc($result);
+
+if (!$data) {
+    die("❌ Data permintaan tidak ditemukan");
+}
 
 // Query detail jasa
-$jasa_detail = mysqli_query($connection, "
-    SELECT * FROM perbaikan_detail WHERE id_permintaan = '$id_permintaan'
-");
+$stmt_jasa = mysqli_prepare($connection, "SELECT * FROM perbaikan_detail WHERE id_permintaan = ?");
+mysqli_stmt_bind_param($stmt_jasa, "i", $id_permintaan);
+mysqli_stmt_execute($stmt_jasa);
+$jasa_detail = mysqli_stmt_get_result($stmt_jasa);
 
 // Query detail sparepart
-$sparepart_detail = mysqli_query($connection, "
+$stmt_part = mysqli_prepare($connection, "
     SELECT sd.*, s.kode_sparepart, s.nama_sparepart
     FROM sparepart_detail sd
     LEFT JOIN sparepart s ON sd.id_sparepart = s.id_sparepart
-    WHERE sd.id_permintaan = '$id_permintaan'
+    WHERE sd.id_permintaan = ?
 ");
+mysqli_stmt_bind_param($stmt_part, "i", $id_permintaan);
+mysqli_stmt_execute($stmt_part);
+$sparepart_detail = mysqli_stmt_get_result($stmt_part);
 ?>
 
 <!DOCTYPE html>
@@ -56,7 +67,7 @@ $sparepart_detail = mysqli_query($connection, "
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Print Form Perbaikan - <?= $data['nomor_pengajuan'] ?></title>
+    <title>Print Form Perbaikan - <?= htmlspecialchars($data['nomor_pengajuan']) ?></title>
     <style>
         @media print {
             .no-print { display: none !important; }
@@ -272,6 +283,7 @@ $sparepart_detail = mysqli_query($connection, "
             font-weight: bold;
         }
 
+        /* 5 kolom: UNIT, SA, QC, REKANAN, KARU QC */
         .signature-section {
             display: grid;
             grid-template-columns: repeat(5, 1fr);
@@ -377,437 +389,411 @@ $sparepart_detail = mysqli_query($connection, "
             }
         }
 
+        @media screen and (max-width: 768px) {
+            body, html {
+                overflow-x: hidden !important;
+                max-width: 100vw;
+            }
 
+            body {
+                padding: 10px !important;
+                font-size: 9pt !important;
+            }
+
+            .print-buttons {
+                padding: 10px !important;
+                margin-bottom: 15px !important;
+            }
+
+            .print-buttons button {
+                display: block;
+                width: 100% !important;
+                margin: 5px 0 !important;
+                padding: 10px 15px !important;
+                font-size: 12px !important;
+            }
+
+            .print-buttons div[style*="border-left"] {
+                display: none !important;
+            }
+
+            .form-wrapper {
+                padding: 12px !important;
+                margin-bottom: 15px !important;
+                border-radius: 8px !important;
+            }
+
+            .form-header {
+                flex-direction: column !important;
+                padding: 10px !important;
+                gap: 10px;
+            }
+
+            .logo-section {
+                width: 100%;
+                justify-content: center;
+                margin-bottom: 10px;
+            }
+
+            .logo {
+                width: 70px !important;
+                height: 70px !important;
+            }
+
+            .form-title {
+                padding: 0 !important;
+                width: 100%;
+            }
+
+            .form-title h2 {
+                font-size: 11pt !important;
+                margin-bottom: 5px;
+                line-height: 1.3;
+            }
+
+            .form-title h3 {
+                font-size: 10pt !important;
+                line-height: 1.3;
+            }
+
+            .form-code {
+                width: 100%;
+                text-align: center;
+                padding: 8px 10px !important;
+                font-size: 10pt !important;
+            }
+
+            .info-section {
+                grid-template-columns: 1fr !important;
+                gap: 6px !important;
+                padding: 8px !important;
+                margin-bottom: 12px !important;
+            }
+
+            .info-item {
+                font-size: 9pt !important;
+                flex-direction: column;
+                gap: 3px !important;
+            }
+
+            .info-label {
+                min-width: auto !important;
+                font-weight: bold;
+                color: #374151;
+            }
+
+            .keluhan-box {
+                padding: 10px !important;
+                margin: 12px 0 !important;
+                font-size: 9pt !important;
+            }
+
+            .keluhan-box strong {
+                font-size: 9pt !important;
+                margin-bottom: 6px !important;
+            }
+
+            .keluhan-box p {
+                font-size: 9pt !important;
+                line-height: 1.4;
+            }
+
+            .main-table {
+                font-size: 8pt !important;
+                margin: 12px 0 !important;
+            }
+
+            .main-table th,
+            .main-table td {
+                padding: 6px 4px !important;
+                font-size: 8pt !important;
+                border: 1px solid #000 !important;
+            }
+
+            .main-table th {
+                font-size: 8pt !important;
+                line-height: 1.2;
+            }
+
+            .main-table th:first-child,
+            .main-table td:first-child {
+                width: 30px !important;
+            }
+
+            .main-table th:nth-child(3),
+            .main-table td:nth-child(3) {
+                width: 40px !important;
+            }
+
+            .main-table th:last-child,
+            .main-table td:last-child {
+                width: 100px !important;
+                font-size: 7.5pt !important;
+            }
+
+            .main-table tfoot td {
+                font-size: 8pt !important;
+                font-weight: bold;
+                padding: 8px 4px !important;
+            }
+
+            .empty-row {
+                height: 50px !important;
+            }
+
+            .location-text {
+                font-size: 9pt !important;
+                margin: 15px 0 10px 0 !important;
+            }
+
+            /* 5 box tanda tangan: mobile jadi 3 kolom baris pertama, sisanya wrap */
+            .signature-section {
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 8px !important;
+                margin-top: 20px !important;
+            }
+
+            .signature-box {
+                padding: 8px 6px !important;
+                min-height: 110px !important;
+                border-width: 1.5px !important;
+            }
+
+            .signature-box .title {
+                font-size: 8pt !important;
+                margin-bottom: 6px !important;
+                padding-bottom: 4px !important;
+            }
+
+            .signature-box img {
+                max-height: 35px !important;
+                max-width: 90px !important;
+                margin: 3px 0 !important;
+            }
+
+            .signature-box .name {
+                font-size: 7.5pt !important;
+                margin-top: 4px !important;
+            }
+
+            .signature-box .position {
+                font-size: 7pt !important;
+                margin-top: 2px !important;
+            }
+
+            .signature-box .date-time {
+                font-size: 6.5pt !important;
+                margin-top: 4px !important;
+            }
+
+            .total-section {
+                padding: 15px 10px !important;
+                margin-top: 20px !important;
+            }
+
+            .total-section .label {
+                font-size: 10pt !important;
+                margin-bottom: 10px !important;
+                line-height: 1.3;
+            }
+
+            .total-section .amount {
+                font-size: 16pt !important;
+            }
+
+            .total-section .breakdown {
+                grid-template-columns: 1fr !important;
+                gap: 8px !important;
+                margin-top: 12px !important;
+                padding-top: 12px !important;
+                font-size: 9pt !important;
+            }
+
+            .total-section .breakdown div {
+                text-align: center;
+            }
+        }
+
+        @media screen and (max-width: 480px) {
+            body {
+                padding: 5px !important;
+                font-size: 8pt !important;
+            }
+
+            .form-wrapper {
+                padding: 10px !important;
+            }
+
+            .form-header {
+                padding: 8px !important;
+            }
+
+            .logo {
+                width: 60px !important;
+                height: 60px !important;
+            }
+
+            .form-title h2 {
+                font-size: 10pt !important;
+            }
+
+            .form-title h3 {
+                font-size: 9pt !important;
+            }
+
+            .form-code {
+                font-size: 9pt !important;
+                padding: 6px 8px !important;
+            }
+
+            .info-section {
+                padding: 6px !important;
+            }
+
+            .info-item,
+            .keluhan-box,
+            .location-text {
+                font-size: 8pt !important;
+            }
+
+            .main-table th,
+            .main-table td {
+                padding: 4px 3px !important;
+                font-size: 7pt !important;
+            }
+
+            .main-table td:last-child {
+                font-size: 7pt !important;
+                word-break: break-word;
+            }
+
+            .signature-section {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+
+            .signature-box {
+                min-height: 100px !important;
+                padding: 6px 4px !important;
+            }
+
+            .signature-box .title {
+                font-size: 7pt !important;
+            }
+
+            .signature-box img {
+                max-height: 30px !important;
+                max-width: 80px !important;
+            }
+
+            .signature-box .name {
+                font-size: 7pt !important;
+            }
+
+            .signature-box .position {
+                font-size: 6.5pt !important;
+            }
+
+            .signature-box .date-time {
+                font-size: 6pt !important;
+            }
+
+            .total-section .label {
+                font-size: 9pt !important;
+            }
+
+            .total-section .amount {
+                font-size: 14pt !important;
+            }
+
+            .total-section .breakdown {
+                font-size: 8pt !important;
+            }
+        }
+
+        @media screen and (max-width: 768px) and (orientation: landscape) {
+            .signature-section {
+                grid-template-columns: repeat(5, 1fr) !important;
+                gap: 6px !important;
+            }
+
+            .signature-box {
+                padding: 6px 4px !important;
+                min-height: 90px !important;
+            }
+
+            .signature-box img {
+                max-height: 30px !important;
+            }
+
+            .total-section .breakdown {
+                grid-template-columns: 1fr 1fr !important;
+            }
+        }
+
+        @media print {
+            body {
+                font-size: 9pt !important;
+                padding: 5mm !important;
+            }
+
+            .form-wrapper {
+                padding: 10px !important;
+                page-break-inside: avoid;
+            }
+
+            .form-header {
+                padding: 8px !important;
+            }
+
+            .signature-section {
+                page-break-inside: avoid;
+            }
+
+            .main-table {
+                page-break-inside: auto;
+            }
+
+            .main-table tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+            }
+
+            .logo img,
+            .signature-box img {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
 
         @media screen and (max-width: 768px) {
-    /* Prevent horizontal scroll */
-    body, html {
-        overflow-x: hidden !important;
-        max-width: 100vw;
-    }
-
-    body {
-        padding: 10px !important;
-        font-size: 9pt !important;
-    }
-
-    /* Print buttons - Stack vertical */
-    .print-buttons {
-        padding: 10px !important;
-        margin-bottom: 15px !important;
-    }
-
-    .print-buttons button {
-        display: block;
-        width: 100% !important;
-        margin: 5px 0 !important;
-        padding: 10px 15px !important;
-        font-size: 12px !important;
-    }
-
-    .print-buttons div[style*="border-left"] {
-        display: none !important;
-    }
-
-    /* Form wrapper - reduce padding */
-    .form-wrapper {
-        padding: 12px !important;
-        margin-bottom: 15px !important;
-        border-radius: 8px !important;
-    }
-
-    /* Form header - stack vertical */
-    .form-header {
-        flex-direction: column !important;
-        padding: 10px !important;
-        gap: 10px;
-    }
-
-    .logo-section {
-        width: 100%;
-        justify-content: center;
-        margin-bottom: 10px;
-    }
-
-    .logo {
-        width: 70px !important;
-        height: 70px !important;
-    }
-
-    .form-title {
-        padding: 0 !important;
-        width: 100%;
-    }
-
-    .form-title h2 {
-        font-size: 11pt !important;
-        margin-bottom: 5px;
-        line-height: 1.3;
-    }
-
-    .form-title h3 {
-        font-size: 10pt !important;
-        line-height: 1.3;
-    }
-
-    .form-code {
-        width: 100%;
-        text-align: center;
-        padding: 8px 10px !important;
-        font-size: 10pt !important;
-    }
-
-    /* Info section - single column */
-    .info-section {
-        grid-template-columns: 1fr !important;
-        gap: 6px !important;
-        padding: 8px !important;
-        margin-bottom: 12px !important;
-    }
-
-    .info-item {
-        font-size: 9pt !important;
-        flex-direction: column;
-        gap: 3px !important;
-    }
-
-    .info-label {
-        min-width: auto !important;
-        font-weight: bold;
-        color: #374151;
-    }
-
-    /* Keluhan box */
-    .keluhan-box {
-        padding: 10px !important;
-        margin: 12px 0 !important;
-        font-size: 9pt !important;
-    }
-
-    .keluhan-box strong {
-        font-size: 9pt !important;
-        margin-bottom: 6px !important;
-    }
-
-    .keluhan-box p {
-        font-size: 9pt !important;
-        line-height: 1.4;
-    }
-
-    /* Main table - responsive */
-    .main-table {
-        font-size: 8pt !important;
-        margin: 12px 0 !important;
-    }
-
-    .main-table th,
-    .main-table td {
-        padding: 6px 4px !important;
-        font-size: 8pt !important;
-        border: 1px solid #000 !important;
-    }
-
-    .main-table th {
-        font-size: 8pt !important;
-        line-height: 1.2;
-    }
-
-    /* Kolom NO lebih kecil */
-    .main-table th:first-child,
-    .main-table td:first-child {
-        width: 30px !important;
-    }
-
-    /* Kolom QTY lebih kecil */
-    .main-table th:nth-child(3),
-    .main-table td:nth-child(3) {
-        width: 40px !important;
-    }
-
-    /* Kolom Harga */
-    .main-table th:last-child,
-    .main-table td:last-child {
-        width: 100px !important;
-        font-size: 7.5pt !important;
-    }
-
-    /* Footer total */
-    .main-table tfoot td {
-        font-size: 8pt !important;
-        font-weight: bold;
-        padding: 8px 4px !important;
-    }
-
-    /* Empty row height */
-    .empty-row {
-        height: 50px !important;
-    }
-
-    /* Location text */
-    .location-text {
-        font-size: 9pt !important;
-        margin: 15px 0 10px 0 !important;
-    }
-
-    /* Signature section - mobile: 3 kolom baris pertama, 2 kolom baris kedua */
-    .signature-section {
-        grid-template-columns: repeat(3, 1fr) !important;
-        gap: 8px !important;
-        margin-top: 20px !important;
-    }
-
-    .signature-box {
-        padding: 8px 6px !important;
-        min-height: 110px !important;
-        border-width: 1.5px !important;
-    }
-
-    .signature-box .title {
-        font-size: 8pt !important;
-        margin-bottom: 6px !important;
-        padding-bottom: 4px !important;
-    }
-
-    .signature-box img {
-        max-height: 35px !important;
-        max-width: 90px !important;
-        margin: 3px 0 !important;
-    }
-
-    .signature-box .name {
-        font-size: 7.5pt !important;
-        margin-top: 4px !important;
-    }
-
-    .signature-box .position {
-        font-size: 7pt !important;
-        margin-top: 2px !important;
-    }
-
-    .signature-box .date-time {
-        font-size: 6.5pt !important;
-        margin-top: 4px !important;
-    }
-
-    /* Total section */
-    .total-section {
-        padding: 15px 10px !important;
-        margin-top: 20px !important;
-    }
-
-    .total-section .label {
-        font-size: 10pt !important;
-        margin-bottom: 10px !important;
-        line-height: 1.3;
-    }
-
-    .total-section .amount {
-        font-size: 16pt !important;
-    }
-
-    .total-section .breakdown {
-        grid-template-columns: 1fr !important;
-        gap: 8px !important;
-        margin-top: 12px !important;
-        padding-top: 12px !important;
-        font-size: 9pt !important;
-    }
-
-    .total-section .breakdown div {
-        text-align: center;
-    }
-}
-
-/* Small mobile (< 480px) */
-@media screen and (max-width: 480px) {
-    body {
-        padding: 5px !important;
-        font-size: 8pt !important;
-    }
-
-    .form-wrapper {
-        padding: 10px !important;
-    }
-
-    .form-header {
-        padding: 8px !important;
-    }
-
-    .logo {
-        width: 60px !important;
-        height: 60px !important;
-    }
-
-    .form-title h2 {
-        font-size: 10pt !important;
-    }
-
-    .form-title h3 {
-        font-size: 9pt !important;
-    }
-
-    .form-code {
-        font-size: 9pt !important;
-        padding: 6px 8px !important;
-    }
-
-    .info-section {
-        padding: 6px !important;
-    }
-
-    .info-item,
-    .keluhan-box,
-    .location-text {
-        font-size: 8pt !important;
-    }
-
-    .main-table th,
-    .main-table td {
-        padding: 4px 3px !important;
-        font-size: 7pt !important;
-    }
-
-    .main-table td:last-child {
-        font-size: 7pt !important;
-        word-break: break-word;
-    }
-
-    .signature-section {
-        grid-template-columns: repeat(2, 1fr) !important;
-    }
-
-    .signature-box {
-        min-height: 100px !important;
-        padding: 6px 4px !important;
-    }
-
-    .signature-box .title {
-        font-size: 7pt !important;
-    }
-
-    .signature-box img {
-        max-height: 30px !important;
-        max-width: 80px !important;
-    }
-
-    .signature-box .name {
-        font-size: 7pt !important;
-    }
-
-    .signature-box .position {
-        font-size: 6.5pt !important;
-    }
-
-    .signature-box .date-time {
-        font-size: 6pt !important;
-    }
-
-    .total-section .label {
-        font-size: 9pt !important;
-    }
-
-    .total-section .amount {
-        font-size: 14pt !important;
-    }
-
-    .total-section .breakdown {
-        font-size: 8pt !important;
-    }
-}
-
-/* Landscape mode */
-@media screen and (max-width: 768px) and (orientation: landscape) {
-    .signature-section {
-        grid-template-columns: repeat(5, 1fr) !important;
-        gap: 6px !important;
-    }
-
-    .signature-box {
-        padding: 6px 4px !important;
-        min-height: 90px !important;
-    }
-
-    .signature-box img {
-        max-height: 30px !important;
-    }
-
-    .total-section .breakdown {
-        grid-template-columns: 1fr 1fr !important;
-    }
-}
-
-/* Print optimization for mobile */
-@media print {
-    body {
-        font-size: 9pt !important;
-        padding: 5mm !important;
-    }
-
-    .form-wrapper {
-        padding: 10px !important;
-        page-break-inside: avoid;
-    }
-
-    .form-header {
-        padding: 8px !important;
-    }
-
-    .signature-section {
-        page-break-inside: avoid;
-    }
-
-    .main-table {
-        page-break-inside: auto;
-    }
-
-    .main-table tr {
-        page-break-inside: avoid;
-        page-break-after: auto;
-    }
-
-    /* Ensure print quality */
-    .logo img,
-    .signature-box img {
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-    }
-}
-
-/* Utility classes for better mobile display */
-@media screen and (max-width: 768px) {
-    /* Text wrap for long content */
-    .main-table td:nth-child(2) {
-        word-wrap: break-word;
-        word-break: break-word;
-        white-space: normal;
-        max-width: 150px;
-    }
-
-    /* Center align numbers properly */
-    .main-table .center {
-        text-align: center !important;
-        vertical-align: middle !important;
-    }
-
-    .main-table .right {
-        text-align: right !important;
-        vertical-align: middle !important;
-    }
-
-    /* Ensure borders are visible */
-    .form-header,
-    .keluhan-box,
-    .signature-box {
-        border-color: #000 !important;
-    }
-
-    /* Better touch targets for buttons */
-    .print-buttons button {
-        min-height: 44px;
-        touch-action: manipulation;
-    }
-}
-        
+            .main-table td:nth-child(2) {
+                word-wrap: break-word;
+                word-break: break-word;
+                white-space: normal;
+                max-width: 150px;
+            }
+
+            .main-table .center {
+                text-align: center !important;
+                vertical-align: middle !important;
+            }
+
+            .main-table .right {
+                text-align: right !important;
+                vertical-align: middle !important;
+            }
+
+            .form-header,
+            .keluhan-box,
+            .signature-box {
+                border-color: #000 !important;
+            }
+
+            .print-buttons button {
+                min-height: 44px;
+                touch-action: manipulation;
+            }
+        }
     </style>
 </head>
 <body>
@@ -848,7 +834,7 @@ $sparepart_detail = mysqli_query($connection, "
                 <h3>PT PETROKOPINDO CIPTA SELARAS</h3>
             </div>
             <div class="form-code">
-                <?= $data['nomor_pengajuan'] ?>
+                <?= htmlspecialchars($data['nomor_pengajuan']) ?>
             </div>
         </div>
 
@@ -856,26 +842,26 @@ $sparepart_detail = mysqli_query($connection, "
         <div class="info-section">
             <div class="info-item">
                 <span class="info-label">JENIS KENDARAAN</span>
-                <span>: <?= $data['jenis_kendaraan'] ?></span>
+                <span>: <?= htmlspecialchars($data['jenis_kendaraan']) ?></span>
             </div>
             <div class="info-item">
                 <span class="info-label">NOMOR ASSET</span>
-                <span>: <?= $data['nopol'] ?></span>
+                <span>: <?= htmlspecialchars($data['nopol']) ?></span>
             </div>
             <div class="info-item">
                 <span class="info-label">REKANAN</span>
-                <span>: <?= $data['nama_rekanan'] ?? '-' ?></span>
+                <span>: <?= htmlspecialchars($data['nama_rekanan'] ?? '-') ?></span>
             </div>
             <div class="info-item">
                 <span class="info-label">BIDANG</span>
-                <span>: <?= $data['bidang'] ?></span>
+                <span>: <?= htmlspecialchars($data['bidang']) ?></span>
             </div>
         </div>
 
         <!-- Keluhan Section -->
         <div class="keluhan-box">
             <strong>KELUHAN / KERUSAKAN :</strong>
-            <p><?= $data['keluhan_awal'] ?></p>
+            <p><?= nl2br(htmlspecialchars($data['keluhan_awal'])) ?></p>
         </div>
 
         <!-- Table Jasa -->
@@ -893,9 +879,7 @@ $sparepart_detail = mysqli_query($connection, "
                 $no = 1;
                 $total_jasa = 0;
                 $has_data = false;
-                
-                mysqli_data_seek($jasa_detail, 0);
-                
+
                 if (mysqli_num_rows($jasa_detail) > 0):
                     while($jasa = mysqli_fetch_assoc($jasa_detail)):
                         $total_jasa += $jasa['subtotal'];
@@ -903,8 +887,8 @@ $sparepart_detail = mysqli_query($connection, "
                 ?>
                 <tr>
                     <td class="center"><?= $no++ ?></td>
-                    <td><?= $jasa['nama_pekerjaan'] ?></td>
-                    <td class="center"><?= $jasa['qty'] ?></td>
+                    <td><?= htmlspecialchars($jasa['nama_pekerjaan']) ?></td>
+                    <td class="center"><?= htmlspecialchars($jasa['qty']) ?></td>
                     <td class="right">Rp <?= number_format($jasa['subtotal'], 0, ',', '.') ?></td>
                 </tr>
                 <?php 
@@ -934,68 +918,79 @@ $sparepart_detail = mysqli_query($connection, "
             GRESIK, <?= date('d F Y', strtotime($data['created_at'])) ?>
         </div>
 
-        <!-- Signatures -->
+        <!-- Signatures: 4 box (UNIT, SA, KARU QC, REKANAN) - sama seperti status tracking -->
         <div class="signature-section">
+            <!-- UNIT / DIAJUKAN -->
             <div class="signature-box">
                 <div class="title">DIAJUKAN,</div>
                 <div class="content">
                     <?php if (!empty($data['driver_ttd'])): ?>
-                        <img src="../uploads/ttd/<?= $data['driver_ttd'] ?>" alt="TTD Driver">
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['driver_ttd']) ?>" alt="TTD Unit">
                     <?php endif; ?>
-                    <div class="name"><?= $data['driver_nama'] ?? '-' ?></div>
-                    <div class="position">PENGAWAS</div>
+                    <div class="name"><?= htmlspecialchars($data['driver_nama'] ?? '-') ?></div>
+                    <div class="position"><?= htmlspecialchars($data['driver_jabatan'] ?? 'PENGAWAS') ?></div>
                     <?php if (!empty($data['tgl_pengajuan'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_pengajuan'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
 
+            <!-- KARU (data admin_karu_qc) / DISETUJUI - posisi ke-2 -->
             <div class="signature-box">
                 <div class="title">DIPERIKSA,</div>
                 <div class="content">
-                    <?php if (!empty($data['sa_ttd'])): ?>
-                        <img src="../uploads/ttd/<?= $data['sa_ttd'] ?>" alt="TTD SA">
-                    <?php endif; ?>
-                    <div class="name"><?= $data['sa_nama'] ?? '-' ?></div>
-                    <div class="position">SERVICE ADVISOR</div>
-                    <?php if (!empty($data['tgl_diperiksa_sa'])): ?>
-                        <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_diperiksa_sa'])) ?></div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <div class="signature-box">
-                <div class="title">DISETUJUI,</div>
-                <div class="content">
                     <?php if (!empty($data['ttd_karu_qc'])): ?>
-                        <img src="../uploads/ttd/<?= $data['ttd_karu_qc'] ?>" alt="TTD KARU">
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['ttd_karu_qc']) ?>" alt="TTD KARU QC">
                     <?php endif; ?>
-                    <div class="name"><?= $data['karu_nama'] ?? '-' ?></div>
-                    <div class="position">KARU QC</div>
+                    <div class="name"><?= htmlspecialchars($data['karu_nama'] ?? '-') ?></div>
+                    <div class="position"><?= htmlspecialchars($data['karu_jabatan'] ?? 'KARU QC') ?></div>
                     <?php if (!empty($data['tgl_disetujui_karu_qc'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_disetujui_karu_qc'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
 
+            <!-- SA / DIPERIKSA - posisi ke-3 -->
             <div class="signature-box">
-                <div class="title">REKANAN</div>
+                <div class="title">DISETUJUI,</div>
+                <div class="content">
+                    <?php if (!empty($data['sa_ttd'])): ?>
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['sa_ttd']) ?>" alt="TTD SA">
+                    <?php endif; ?>
+                    <div class="name"><?= htmlspecialchars($data['sa_nama'] ?? '-') ?></div>
+                    <div class="position"><?= htmlspecialchars($data['sa_jabatan'] ?? 'SERVICE ADVISOR') ?></div>
+                    <?php if (!empty($data['tgl_diperiksa_sa'])): ?>
+                        <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_diperiksa_sa'])) ?></div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- REKANAN -->
+            <div class="signature-box">
+                <div class="title">DIKERJAKAN,</div>
                 <div class="content">
                     <?php if (!empty($data['ttd_rekanan'])): ?>
-                        <img src="../uploads/ttd_rekanan/<?= $data['ttd_rekanan'] ?>" alt="TTD Rekanan">
+                        <img src="../uploads/ttd_rekanan/<?= htmlspecialchars($data['ttd_rekanan']) ?>" alt="TTD Rekanan">
                     <?php endif; ?>
-                    <div class="name"><?= $data['nama_rekanan'] ?? '-' ?></div>
+                    <div class="name"><?= htmlspecialchars($data['nama_rekanan'] ?? '-') ?></div>
                     <?php if (!empty($data['tgl_selesai'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_selesai'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <!-- Kotak baru: MENGETAHUI (kosong untuk tanda tangan manual) -->
+            <!-- KARU QC / MENGETAHUI -->
             <div class="signature-box">
                 <div class="title">MENGETAHUI,</div>
                 <div class="content">
-                    <!-- Kosong - untuk tanda tangan manual -->
+                    <?php if (!empty($data['ttd_qc'])): ?>
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['ttd_qc']) ?>" alt="TTD Karu QC">
+                    <?php endif; ?>
+                    <div class="name"><?= htmlspecialchars($data['qc_nama'] ?? '-') ?></div>
+                    <div class="position"><?= htmlspecialchars($data['qc_jabatan'] ?? 'KARU QC') ?></div>
+                    <?php if (!empty($data['tgl_selesai'])): ?>
+                        <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_selesai'])) ?></div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -1017,7 +1012,7 @@ $sparepart_detail = mysqli_query($connection, "
                 <h3>PT PETROKOPINDO CIPTA SELARAS</h3>
             </div>
             <div class="form-code">
-                <?= $data['nomor_pengajuan'] ?>
+                <?= htmlspecialchars($data['nomor_pengajuan']) ?>
             </div>
         </div>
 
@@ -1025,11 +1020,11 @@ $sparepart_detail = mysqli_query($connection, "
         <div class="info-section">
             <div class="info-item">
                 <span class="info-label">NOMOR ASSET</span>
-                <span>: <?= $data['nopol'] ?></span>
+                <span>: <?= htmlspecialchars($data['nopol']) ?></span>
             </div>
             <div class="info-item">
                 <span class="info-label">BIDANG</span>
-                <span>: <?= $data['bidang'] ?></span>
+                <span>: <?= htmlspecialchars($data['bidang']) ?></span>
             </div>
         </div>
 
@@ -1048,9 +1043,7 @@ $sparepart_detail = mysqli_query($connection, "
                 $no = 1;
                 $total_sparepart = 0;
                 $has_data_part = false;
-                
-                mysqli_data_seek($sparepart_detail, 0);
-                
+
                 if (mysqli_num_rows($sparepart_detail) > 0):
                     while($part = mysqli_fetch_assoc($sparepart_detail)):
                         $total_sparepart += $part['subtotal'];
@@ -1058,8 +1051,8 @@ $sparepart_detail = mysqli_query($connection, "
                 ?>
                 <tr>
                     <td class="center"><?= $no++ ?></td>
-                    <td><?= $part['nama_sparepart'] ?></td>
-                    <td class="center"><?= $part['qty'] ?></td>
+                    <td><?= htmlspecialchars($part['nama_sparepart']) ?></td>
+                    <td class="center"><?= htmlspecialchars($part['qty']) ?></td>
                     <td class="right">Rp <?= number_format($part['subtotal'], 0, ',', '.') ?></td>
                 </tr>
                 <?php 
@@ -1089,16 +1082,16 @@ $sparepart_detail = mysqli_query($connection, "
             GRESIK, <?= date('d F Y', strtotime($data['created_at'])) ?>
         </div>
 
-        <!-- Signatures -->
+        <!-- Signatures: 4 box (UNIT, SA, KARU QC, REKANAN) -->
         <div class="signature-section">
             <div class="signature-box">
                 <div class="title">DIAJUKAN,</div>
                 <div class="content">
                     <?php if (!empty($data['driver_ttd'])): ?>
-                        <img src="../uploads/ttd/<?= $data['driver_ttd'] ?>" alt="TTD Driver">
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['driver_ttd']) ?>" alt="TTD Driver">
                     <?php endif; ?>
-                    <div class="name"><?= $data['driver_nama'] ?? '-' ?></div>
-                    <div class="position">PENGAWAS</div>
+                    <div class="name"><?= htmlspecialchars($data['driver_nama'] ?? '-') ?></div>
+                    <div class="position"><?= htmlspecialchars($data['driver_jabatan'] ?? 'PENGAWAS') ?></div>
                     <?php if (!empty($data['tgl_pengajuan'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_pengajuan'])) ?></div>
                     <?php endif; ?>
@@ -1108,25 +1101,11 @@ $sparepart_detail = mysqli_query($connection, "
             <div class="signature-box">
                 <div class="title">DIPERIKSA,</div>
                 <div class="content">
-                    <?php if (!empty($data['ttd_sa'])): ?>
-                        <img src="../uploads/ttd/<?= $data['ttd_sa'] ?>" alt="TTD QC">
-                    <?php endif; ?>
-                    <div class="name"><?= $data['sa_nama'] ?? '-' ?></div>
-                    <div class="position">SERVICE ADVISOR</div>
-                    <?php if (!empty($data['tgl_diperiksa_sa'])): ?>
-                        <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_diperiksa_sa'])) ?></div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <div class="signature-box">
-                <div class="title">DISETUJUI,</div>
-                <div class="content">
                     <?php if (!empty($data['ttd_karu_qc'])): ?>
-                        <img src="../uploads/ttd/<?= $data['ttd_karu_qc'] ?>" alt="TTD KARU">
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['ttd_karu_qc']) ?>" alt="TTD KARU QC">
                     <?php endif; ?>
-                    <div class="name"><?= $data['karu_nama'] ?? '-' ?></div>
-                    <div class="position">KARU QC</div>
+                    <div class="name"><?= htmlspecialchars($data['karu_nama'] ?? '-') ?></div>
+                    <div class="position"><?= htmlspecialchars($data['karu_jabatan'] ?? 'KARU QC') ?></div>
                     <?php if (!empty($data['tgl_disetujui_karu_qc'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_disetujui_karu_qc'])) ?></div>
                     <?php endif; ?>
@@ -1134,23 +1113,44 @@ $sparepart_detail = mysqli_query($connection, "
             </div>
 
             <div class="signature-box">
-                <div class="title">REKANAN</div>
+                <div class="title">DISETUJUI,</div>
+                <div class="content">
+                    <?php if (!empty($data['sa_ttd'])): ?>
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['sa_ttd']) ?>" alt="TTD SA">
+                    <?php endif; ?>
+                    <div class="name"><?= htmlspecialchars($data['sa_nama'] ?? '-') ?></div>
+                    <div class="position"><?= htmlspecialchars($data['sa_jabatan'] ?? 'SERVICE ADVISOR') ?></div>
+                    <?php if (!empty($data['tgl_diperiksa_sa'])): ?>
+                        <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_diperiksa_sa'])) ?></div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="signature-box">
+                <div class="title">DIKERJAKAN</div>
                 <div class="content">
                     <?php if (!empty($data['ttd_rekanan'])): ?>
-                        <img src="../uploads/ttd_rekanan/<?= $data['ttd_rekanan'] ?>" alt="TTD Rekanan">
+                        <img src="../uploads/ttd_rekanan/<?= htmlspecialchars($data['ttd_rekanan']) ?>" alt="TTD Rekanan">
                     <?php endif; ?>
-                    <div class="name"><?= $data['nama_rekanan'] ?? '-' ?></div>
+                    <div class="name"><?= htmlspecialchars($data['nama_rekanan'] ?? '-') ?></div>
                     <?php if (!empty($data['tgl_selesai'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_selesai'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <!-- Kotak baru: MENGETAHUI (kosong untuk tanda tangan manual) -->
+            <!-- KARU QC / MENGETAHUI -->
             <div class="signature-box">
                 <div class="title">MENGETAHUI,</div>
                 <div class="content">
-                    <!-- Kosong - untuk tanda tangan manual -->
+                    <?php if (!empty($data['ttd_qc'])): ?>
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['ttd_qc']) ?>" alt="TTD Karu QC">
+                    <?php endif; ?>
+                    <div class="name"><?= htmlspecialchars($data['qc_nama'] ?? '-') ?></div>
+                    <div class="position"><?= htmlspecialchars($data['qc_jabatan'] ?? 'KARU QC') ?></div>
+                    <?php if (!empty($data['tgl_selesai'])): ?>
+                        <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_selesai'])) ?></div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -1171,7 +1171,6 @@ $sparepart_detail = mysqli_query($connection, "
 
     <script>
         function printAll() {
-            // Redirect ke URL tanpa parameter jenis atau dengan jenis=all
             window.location.href = 'print_form_perbaikan.php?id=<?= $id_permintaan ?>';
         }
 
@@ -1183,7 +1182,6 @@ $sparepart_detail = mysqli_query($connection, "
             window.location.href = 'print_form_perbaikan.php?id=<?= $id_permintaan ?>&jenis=sparepart';
         }
 
-        // Auto print jika parameter print=1
         <?php if (isset($_GET['print']) && $_GET['print'] == '1'): ?>
         window.onload = function() {
             setTimeout(function() {

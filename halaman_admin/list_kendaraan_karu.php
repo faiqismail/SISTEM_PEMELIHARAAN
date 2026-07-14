@@ -525,15 +525,15 @@ function handleSearch(value) {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
         if (value) {
-            window.location.href = 'list_kendaraan_disetujui.php?search=' + encodeURIComponent(value);
+            window.location.href = 'list_kendaraan_karu.php?search=' + encodeURIComponent(value);
         } else {
-            window.location.href = 'list_kendaraan_disetujui.php';
+            window.location.href = 'list_kendaraan_karu.php';
         }
     }, 800);
 }
 
 function clearSearch() {
-    window.location.href = 'list_kendaraan_disetujui.php';
+    window.location.href = 'list_kendaraan_karu.php';
 }
 </script>
 

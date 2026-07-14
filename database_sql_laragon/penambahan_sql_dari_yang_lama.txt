@@ -1,0 +1,15 @@
+
+// untuk Update Tambahkan sql ini 
+
+# penambahan SQL
+
+ALTER TABLE users 
+ADD COLUMN nama VARCHAR(100) NOT NULL DEFAULT '-' AFTER username,
+ADD COLUMN jabatan VARCHAR(100) NOT NULL DEFAULT '-' AFTER nama;
+ 
+
+ALTER TABLE permintaan_perbaikan 
+ADD COLUMN admin_qc INT NULL AFTER admin_karu_qc;
+
+ALTER TABLE users  ADD COLUMN bidang VARCHAR(100) NULL DEFAULT NULL AFTER role; 
+

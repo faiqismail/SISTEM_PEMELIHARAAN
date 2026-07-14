@@ -3,11 +3,14 @@
 // NAVBAR TIDAK BOLEH URUS SESSION / LOGIN / DATABASE
 
 $username = $_SESSION['username'] ?? 'User';
+$nama     = $_SESSION['nama'] ?? '';
+$displayName = (!empty($nama) && $nama !== '-') ? $nama : $username;
+$jabatan  = $_SESSION['jabatan'] ?? '';
 $role     = $_SESSION['role'] ?? 'user';
 $role_label = $role;
 
 if ($role === 'admin') {
-    $role_label = 'Admin';
+    $role_label = 'Pemeliharaan';
 }
 // Deteksi halaman aktif
 $current_page = basename($_SERVER['PHP_SELF']);
@@ -47,14 +50,20 @@ $current_page = basename($_SERVER['PHP_SELF']);
     <div class="user-profile">
         <div class="flex items-center gap-3">
             <div class="user-avatar">
-                <?= strtoupper(substr($username, 0, 1)) ?>
+                <?= strtoupper(substr($displayName, 0, 1)) ?>
             </div>
             <div class="user-info">
-                <div class="user-name"><?= htmlspecialchars($username) ?></div>
+                <div class="user-name"><?= htmlspecialchars($displayName) ?></div>
                 <div class="user-role">
                     <i class="fas fa-user-tag mr-1"></i>
                     <?= htmlspecialchars($role_label) ?>
                 </div>
+                <?php if (!empty($jabatan) && $jabatan !== '-'): ?>
+                <div class="user-jabatan">
+                    <i class="fas fa-briefcase mr-1"></i>
+                    <?= htmlspecialchars($jabatan) ?>
+                </div>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -63,6 +72,10 @@ $current_page = basename($_SERVER['PHP_SELF']);
         <a href="dasboard.php" class="menu-item <?= $current_page == 'dasboard.php' ? 'active' : '' ?>">
             <i class="fas fa-chart-line"></i>
             <span>Dashboard</span>
+        </a>
+        <a href="dasboard_kendaraan.php" class="menu-item <?= $current_page == 'dasboard_kendaraan.php' ? 'active' : '' ?>">
+            <i class="fas fa-chart-line"></i>
+            <span>Dashboard kendaraan</span>
         </a>
         <a href="dasboard_prevetif.php" class="menu-item <?= $current_page == 'dasboard_preventif.php' ? 'active' : '' ?>">
             <i class="fas fa-chart-line"></i>
@@ -257,6 +270,15 @@ $current_page = basename($_SERVER['PHP_SELF']);
     .user-role {
         font-size: 11px;
         color: rgba(255,255,255,0.7);
+    }
+
+    .user-jabatan {
+        font-size: 11px;
+        color: rgba(255,255,255,0.6);
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     
     .sidebar-menu {
@@ -572,6 +594,10 @@ $current_page = basename($_SERVER['PHP_SELF']);
         }
         
         .user-role {
+            font-size: 10px;
+        }
+
+        .user-jabatan {
             font-size: 10px;
         }
         

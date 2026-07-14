@@ -19,89 +19,89 @@ if (empty($id_permintaan)) {
 ======================= */
 if (isset($_POST['action_persetujuan'])) {
     $persetujuan = mysqli_real_escape_string($connection, $_POST['persetujuan']);
-    $catatan = strtoupper(mysqli_real_escape_string($connection, $_POST['catatan_pengawas']));
+
+    // Catatan bersifat OPSIONAL. Jika kosong, otomatis diisi '-' agar data tidak kosong.
+    $catatan_raw = isset($_POST['catatan_pengawas']) ? trim($_POST['catatan_pengawas']) : '';
+    $catatan = empty($catatan_raw) ? '-' : strtoupper(mysqli_real_escape_string($connection, $catatan_raw));
+
     $tgl_persetujuan = date('Y-m-d H:i:s');
 
-    if (empty($catatan)) {
-        $_SESSION['error_msg'] = 'Catatan pengawas wajib diisi.';
+    // Ambil data untuk cek status dan asal_persetujuan
+    $check = mysqli_query($connection, "
+        SELECT status, catatan_sa FROM permintaan_perbaikan 
+        WHERE id_permintaan = '$id_permintaan'
+    ");
+    $current_data = mysqli_fetch_assoc($check);
+    $current_status = $current_data['status'];
+
+    // ========================================
+    // LOGIC ASAL PERSETUJUAN
+    // ========================================
+    // Jika catatan_sa NULL atau kosong → dari QC
+    // Jika catatan_sa ada isinya → dari SA
+    $asal_persetujuan = (empty($current_data['catatan_sa']) || is_null($current_data['catatan_sa'])) ? 'QC' : 'SA';
+
+    // Get TTD Pengawas
+    $user_ttd = mysqli_fetch_assoc(mysqli_query($connection, "SELECT ttd FROM users WHERE id_user='$id_user'"));
+    $ttd_pengawas = $user_ttd['ttd'];
+
+    // ========================================
+    // LOGIKA STATUS BARU:
+    // Baik dari QC maupun SA:
+    //   - Disetujui → status tetap 'Dikembalikan_sa', persetujuan_pengawas = 'Disetujui'
+    //                 SA membaca persetujuan_pengawas='Disetujui' untuk tindak lanjut
+    //   - Ditolak   → status tetap 'Dikembalikan_sa', persetujuan_pengawas = 'Ditolak'
+    // SA yang menentukan langkah selanjutnya, bukan langsung ke QC
+    // ========================================
+    if ($current_status === 'Minta_Persetujuan_Pengawas' || $current_status === 'Dikembalikan_sa') {
+        if ($persetujuan === 'Disetujui') {
+            // Disetujui → kembali ke SA, SA yang tindak lanjut
+            $new_status = 'Dikembalikan_sa';
+            $tgl_field = 'tgl_persetujuan_pengawas';
+        } else {
+            // Ditolak → kembali ke SA dengan catatan penolakan
+            $new_status = 'Dikembalikan_sa';
+            $tgl_field = 'tgl_dikembalikan';
+        }
     } else {
-        // Ambil data untuk cek status dan asal_persetujuan
-        $check = mysqli_query($connection, "
-            SELECT status, catatan_sa FROM permintaan_perbaikan 
+        // Status lain — tidak ubah status
+        $new_status = $current_status;
+        $tgl_field = null;
+    }
+
+    // Update database
+    if ($tgl_field) {
+        mysqli_query($connection, "
+            UPDATE permintaan_perbaikan SET
+                persetujuan_pengawas = '$persetujuan',
+                catatan_pengawas = '$catatan',
+                tgl_persetujuan_pengawas = '$tgl_persetujuan',
+                ttd_pengawas = '$ttd_pengawas',
+                asal_persetujuan = '$asal_persetujuan',
+                status = '$new_status',
+                $tgl_field = '$tgl_persetujuan'
             WHERE id_permintaan = '$id_permintaan'
         ");
-        $current_data = mysqli_fetch_assoc($check);
-        $current_status = $current_data['status'];
-
-        // ========================================
-        // LOGIC ASAL PERSETUJUAN
-        // ========================================
-        // Jika catatan_sa NULL atau kosong → dari QC
-        // Jika catatan_sa ada isinya → dari SA
-        $asal_persetujuan = (empty($current_data['catatan_sa']) || is_null($current_data['catatan_sa'])) ? 'QC' : 'SA';
-
-        // Get TTD Pengawas
-        $user_ttd = mysqli_fetch_assoc(mysqli_query($connection, "SELECT ttd FROM users WHERE id_user='$id_user'"));
-        $ttd_pengawas = $user_ttd['ttd'];
-
-        // ========================================
-        // LOGIKA STATUS BARU:
-        // Baik dari QC maupun SA:
-        //   - Disetujui → status tetap 'Dikembalikan_sa', persetujuan_pengawas = 'Disetujui'
-        //                 SA membaca persetujuan_pengawas='Disetujui' untuk tindak lanjut
-        //   - Ditolak   → status tetap 'Dikembalikan_sa', persetujuan_pengawas = 'Ditolak'
-        // SA yang menentukan langkah selanjutnya, bukan langsung ke QC
-        // ========================================
-        if ($current_status === 'Minta_Persetujuan_Pengawas' || $current_status === 'Dikembalikan_sa') {
-            if ($persetujuan === 'Disetujui') {
-                // Disetujui → kembali ke SA, SA yang tindak lanjut
-                $new_status = 'Dikembalikan_sa';
-                $tgl_field = 'tgl_persetujuan_pengawas';
-            } else {
-                // Ditolak → kembali ke SA dengan catatan penolakan
-                $new_status = 'Dikembalikan_sa';
-                $tgl_field = 'tgl_dikembalikan';
-            }
-        } else {
-            // Status lain — tidak ubah status
-            $new_status = $current_status;
-            $tgl_field = null;
-        }
-
-        // Update database
-        if ($tgl_field) {
-            mysqli_query($connection, "
-                UPDATE permintaan_perbaikan SET
-                    persetujuan_pengawas = '$persetujuan',
-                    catatan_pengawas = '$catatan',
-                    tgl_persetujuan_pengawas = '$tgl_persetujuan',
-                    ttd_pengawas = '$ttd_pengawas',
-                    asal_persetujuan = '$asal_persetujuan',
-                    status = '$new_status',
-                    $tgl_field = '$tgl_persetujuan'
-                WHERE id_permintaan = '$id_permintaan'
-            ");
-        } else {
-            mysqli_query($connection, "
-                UPDATE permintaan_perbaikan SET
-                    persetujuan_pengawas = '$persetujuan',
-                    catatan_pengawas = '$catatan',
-                    tgl_persetujuan_pengawas = '$tgl_persetujuan',
-                    ttd_pengawas = '$ttd_pengawas',
-                    asal_persetujuan = '$asal_persetujuan'
-                WHERE id_permintaan = '$id_permintaan'
-            ");
-        }
-
-        if ($persetujuan === 'Disetujui') {
-            $_SESSION['success_msg'] = "✅ Pengajuan berhasil disetujui! Pengajuan telah dikembalikan ke Service Advisor untuk ditindaklanjuti.";
-        } else {
-            $_SESSION['success_msg'] = "❌ Pengajuan berhasil ditolak! Pengajuan dikembalikan ke Service Advisor.";
-        }
-
-        header('Location: ' . url_with_tab('pengajuan_perbaikan.php'));
-        exit;
+    } else {
+        mysqli_query($connection, "
+            UPDATE permintaan_perbaikan SET
+                persetujuan_pengawas = '$persetujuan',
+                catatan_pengawas = '$catatan',
+                tgl_persetujuan_pengawas = '$tgl_persetujuan',
+                ttd_pengawas = '$ttd_pengawas',
+                asal_persetujuan = '$asal_persetujuan'
+            WHERE id_permintaan = '$id_permintaan'
+        ");
     }
+
+    if ($persetujuan === 'Disetujui') {
+        $_SESSION['success_msg'] = "✅ Pengajuan berhasil disetujui! Pengajuan telah dikembalikan ke Service Advisor untuk ditindaklanjuti.";
+    } else {
+        $_SESSION['success_msg'] = "❌ Pengajuan berhasil ditolak! Pengajuan dikembalikan ke Service Advisor.";
+    }
+
+    header('Location: ' . url_with_tab('pengajuan_perbaikan.php'));
+    exit;
 }
 
 /* =======================
@@ -650,8 +650,11 @@ unset($_SESSION['success_msg'], $_SESSION['error_msg']);
             font-size: 0.9em;
         }
 
-        .form-label .required {
-            color: #e74c3c;
+        .form-label .optional {
+            color: #6c757d;
+            font-weight: 500;
+            font-size: 0.85em;
+            text-transform: none;
         }
 
         textarea.form-control {
@@ -673,21 +676,13 @@ unset($_SESSION['success_msg'], $_SESSION['error_msg']);
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
-        textarea.form-control.error {
-            border-color: #e74c3c;
-        }
-
-        .error-msg {
-            color: #e74c3c;
+        .form-hint {
+            color: #6c757d;
             font-size: 0.8em;
             margin-top: 4px;
-            display: none;
+            display: flex;
             align-items: center;
             gap: 4px;
-        }
-
-        .error-msg.show {
-            display: flex;
         }
 
         /* Action Buttons */
@@ -882,7 +877,7 @@ unset($_SESSION['success_msg'], $_SESSION['error_msg']);
                             <i class="fas fa-check"></i>
                         </div>
                         <div class="step-text">
-                            Jika <strong>DISETUJUI</strong> → Pengajuan dikembalikan ke <strong>Service Advisor</strong> dengan status <strong>Disetujui Pengawas</strong>. SA yang akan menentukan langkah selanjutnya.
+                            Jika <strong>DISETUJUI</strong> → Pengajuan dikembalikan ke <strong>Service Advisor</strong> dengan status <strong>Disetujui Unit</strong>. SA yang akan menentukan langkah selanjutnya.
                         </div>
                     </div>
                     <div class="alur-step">
@@ -901,7 +896,7 @@ unset($_SESSION['success_msg'], $_SESSION['error_msg']);
                 <p><i class="fas fa-clock"></i> <strong>Status:</strong> <span class="badge">Menunggu Persetujuan Anda</span></p>
                 <p><i class="fas fa-calendar"></i> <strong>Tanggal Pengajuan:</strong> <?= date('d F Y, H:i', strtotime($data['tgl_pengajuan'])) ?> WIB</p>
                 <?php if (!empty($data['tgl_persetujuan_pengawas'])): ?>
-                <p><i class="fas fa-paper-plane"></i> <strong>Dikirim ke Pengawas:</strong> <?= date('d F Y, H:i', strtotime($data['tgl_persetujuan_pengawas'])) ?> WIB</p>
+                <p><i class="fas fa-paper-plane"></i> <strong>Dikirim ke Unit:</strong> <?= date('d F Y, H:i', strtotime($data['tgl_persetujuan_pengawas'])) ?> WIB</p>
                 <?php endif; ?>
             </div>
 
@@ -1069,7 +1064,7 @@ unset($_SESSION['success_msg'], $_SESSION['error_msg']);
             <!-- Section 4: Form Keputusan -->
             <div class="section">
                 <h3 class="section-title">
-                    <i class="fas fa-gavel"></i> Keputusan Pengawas
+                    <i class="fas fa-gavel"></i> Keputusan Unit
                 </h3>
 
                 <div style="background: #f8f9fa; border-radius: 8px; padding: 14px; margin-bottom: 18px; border: 1px solid #e9ecef; font-size: 0.88em; color: #495057; line-height: 1.7;">
@@ -1081,18 +1076,17 @@ unset($_SESSION['success_msg'], $_SESSION['error_msg']);
                 <form method="POST" id="formPersetujuan">
                     <div class="form-group">
                         <label class="form-label">
-                            <i class="fas fa-comment-dots"></i> Catatan / Alasan <span class="required">*</span>
+                            <i class="fas fa-comment-dots"></i> Catatan / Alasan <span class="optional">(Opsional)</span>
                         </label>
                         <textarea
                             name="catatan_pengawas"
                             id="catatan_pengawas"
                             class="form-control"
-                            placeholder="Tuliskan catatan atau alasan persetujuan/penolakan Anda..."
-                            required
+                            placeholder="Tuliskan catatan atau alasan persetujuan/penolakan Anda (opsional)..."
                         ></textarea>
-                        <div class="error-msg" id="errorMsg">
-                            <i class="fas fa-exclamation-circle"></i>
-                            <span>Catatan wajib diisi</span>
+                        <div class="form-hint">
+                            <i class="fas fa-info-circle"></i>
+                            <span>Jika tidak diisi, catatan akan otomatis diisi tanda "-"</span>
                         </div>
                     </div>
 
@@ -1125,27 +1119,17 @@ document.getElementById('catatan_pengawas').addEventListener('input', function()
     const end = this.selectionEnd;
     this.value = this.value.toUpperCase();
     this.setSelectionRange(start, end);
-
-    if (this.value.trim()) {
-        this.classList.remove('error');
-        document.getElementById('errorMsg').classList.remove('show');
-    }
 });
 
 function submitKeputusan(jenis) {
-    const catatan = document.getElementById('catatan_pengawas').value.trim();
-    const errorMsg = document.getElementById('errorMsg');
     const textarea = document.getElementById('catatan_pengawas');
+    let catatan = textarea.value.trim();
 
+    // Catatan opsional: jika kosong, otomatis isi '-' agar data tidak kosong di database
     if (!catatan) {
-        textarea.classList.add('error');
-        errorMsg.classList.add('show');
-        textarea.focus();
-        return;
+        catatan = '-';
+        textarea.value = '-';
     }
-
-    textarea.classList.remove('error');
-    errorMsg.classList.remove('show');
 
     const pesan = jenis === 'Disetujui'
         ? '✅ Anda akan MENYETUJUI pengajuan ini.\n\nSetelah disetujui, pengajuan akan dikembalikan ke Service Advisor untuk ditindaklanjuti.\n\nLanjutkan?'

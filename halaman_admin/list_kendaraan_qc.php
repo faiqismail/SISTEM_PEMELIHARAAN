@@ -119,8 +119,8 @@ SELECT
     p.catatan_sa,
     p.persetujuan_pengawas,
     p.grand_total,
-    u.username AS pengaju_nama, 
-    u_sa.username AS sa_nama
+   u.nama AS pengaju_nama, 
+    u_sa.nama AS sa_nama
 FROM kendaraan k
 INNER JOIN permintaan_perbaikan p ON k.id_kendaraan = p.id_kendaraan
 LEFT JOIN users u ON p.id_pengaju = u.id_user
@@ -768,7 +768,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
 <div class="modal-container" id="modalPersetujuan">
     <div class="modal-header">
         <i class="fas fa-user-check" style="color: #10b981; font-size: 1.5rem;"></i>
-        <h3>Minta Persetujuan Pengawas</h3>
+        <h3>Minta Persetujuan Unit</h3>
         <button type="button" class="modal-close" onclick="closeModal()">
             <i class="fas fa-times"></i>
         </button>
@@ -790,7 +790,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
 
         <div class="form-group">
             <label for="catatan_persetujuan">
-                <i class="fas fa-comment-dots"></i> Catatan QC untuk Pengawas <span style="color: red;">*</span>
+                <i class="fas fa-comment-dots"></i> Catatan QC untuk Unit <span style="color: red;">*</span>
             </label>
             <textarea 
                 name="catatan" 
@@ -799,7 +799,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                 required
                 oninput="this.value = this.value.toUpperCase()"></textarea>
             <small style="color: #999; font-size: 0.8rem;">
-                <i class="fas fa-info-circle"></i> Catatan ini akan dilihat oleh Pengawas. Anda dapat mengedit atau menambahi catatan sebelumnya.
+                <i class="fas fa-info-circle"></i> Catatan ini akan dilihat oleh Unit. Anda dapat mengedit atau menambahi catatan sebelumnya.
             </small>
         </div>
         
@@ -808,7 +808,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                 <i class="fas fa-times"></i> Batal
             </button>
             <button type="submit" class="btn-modal btn-submit-approve">
-                <i class="fas fa-paper-plane"></i> Kirim ke Pengawas
+                <i class="fas fa-paper-plane"></i> Kirim ke Unit
             </button>
         </div>
     </form>
@@ -868,7 +868,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
             <div class="stat-card blue">
                 <i class="fas fa-clock"></i>
                 <div class="stat-info">
-                    <span class="stat-label">MENUNGGU PENGAWAS</span>
+                    <span class="stat-label">MENUNGGU UNIT</span>
                     <span class="stat-value"><?= $count_menunggu_pengawas ?></span>
                 </div>
             </div>
@@ -893,7 +893,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                     <i class="fas fa-check-double"></i> Diperiksa QC <span class="badge-count"><?= $count_disetujui_karu ?></span>
                 </button>
                 <button class="filter-btn status-menunggu <?= $filter_status == 'Menunggu_Pengawas' ? 'active' : '' ?>" onclick="filterStatus('Menunggu_Pengawas')">
-                    <i class="fas fa-clock"></i> Menunggu Pengawas <span class="badge-count"><?= $count_menunggu_pengawas ?></span>
+                    <i class="fas fa-clock"></i> Menunggu Unit <span class="badge-count"><?= $count_menunggu_pengawas ?></span>
                 </button>
             </div>
         </div>
@@ -945,7 +945,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                         } elseif ($data['status'] == 'Minta_Persetujuan_Pengawas') {
                             if ($data['persetujuan_pengawas'] == 'Menunggu') {
                                 $status_class = 'status-menunggu';
-                                $status_text = 'Menunggu Pengawas';
+                                $status_text = 'Menunggu Unit';
                                 $status_icon = 'fa-clock';
                             }
                         }
@@ -1005,8 +1005,8 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                                     <button type="button"
                                             class="btn-action btn-approve"
                                             onclick='openModalPersetujuan(<?= $data['id_permintaan'] ?>, "<?= htmlspecialchars($data['nomor_pengajuan'], ENT_QUOTES) ?>", "<?= $catatan_qc_escaped ?>")'
-                                            title="Minta Persetujuan Pengawas">
-                                        <i class="fas fa-user-check"></i> Ke Pengawas
+                                            title="Minta Persetujuan Unit">
+                                        <i class="fas fa-user-check"></i> Ke Unit
                                     </button>
                                 <?php endif; ?>
                             </div>

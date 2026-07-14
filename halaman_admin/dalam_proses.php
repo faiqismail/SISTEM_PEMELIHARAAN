@@ -15,8 +15,14 @@ $bidang_list = [
 
 // Mode tampilan: 'top5' atau 'carousel'
 $display_mode = isset($_GET['mode']) ? $_GET['mode'] : 'top5';
+$debug_mode   = isset($_GET['debug']) && $_GET['debug'] == '1';
 
+// =========================================================
 // Query untuk semua bidang
+// PENTING: rekanan diubah ke LEFT JOIN, karena kalau id_rekanan
+// masih NULL (belum ditentukan rekanan-nya), INNER JOIN akan
+// membuang baris itu sepenuhnya walau statusnya sudah cocok.
+// =========================================================
 $sql = "
 SELECT
     pp.id_permintaan,
@@ -29,7 +35,7 @@ SELECT
     k.jenis_kendaraan
 FROM permintaan_perbaikan pp
 JOIN kendaraan k ON pp.id_kendaraan = k.id_kendaraan
-JOIN rekanan r ON pp.id_rekanan = r.id_rekanan
+LEFT JOIN rekanan r ON pp.id_rekanan = r.id_rekanan
 WHERE pp.status IN ('Disetujui_KARU_QC','QC','Dikembalikan_sa')
 ORDER BY pp.tgl_disetujui_karu_qc ASC
 ";
@@ -40,20 +46,82 @@ if (!$result) {
 }
 
 // Kelompokkan data per bidang
+// Pencocokan dibuat case-insensitive & trim spasi supaya lebih toleran
+// terhadap perbedaan penulisan bidang di database vs $bidang_list.
 $data_per_bidang = [];
+$raw_rows = [];
+$bidang_asli_ditemukan = [];
+
 while ($row = mysqli_fetch_assoc($result)) {
-    $bidang = trim($row['bidang']);
-    if (!isset($data_per_bidang[$bidang])) {
-        $data_per_bidang[$bidang] = [];
+    $raw_rows[] = $row;
+
+    $bidang_asli = trim($row['bidang']);
+    $bidang_asli_ditemukan[$bidang_asli] = ($bidang_asli_ditemukan[$bidang_asli] ?? 0) + 1;
+
+    // Cari kecocokan bidang secara case-insensitive terhadap $bidang_list
+    $bidang_key = $bidang_asli;
+    foreach ($bidang_list as $b) {
+        if (strcasecmp(trim($b), $bidang_asli) === 0) {
+            $bidang_key = $b; // pakai penulisan resmi dari $bidang_list
+            break;
+        }
     }
-    $data_per_bidang[$bidang][] = $row;
+
+    if (!isset($data_per_bidang[$bidang_key])) {
+        $data_per_bidang[$bidang_key] = [];
+    }
+    $data_per_bidang[$bidang_key][] = $row;
+}
+
+// =========================================================
+// MODE DEBUG — buka dengan menambahkan ?debug=1 di URL
+// =========================================================
+if ($debug_mode) {
+    echo '<div style="font-family:monospace;background:#111;color:#0f0;padding:20px;margin:20px;border-radius:10px;white-space:pre-wrap;">';
+    echo "=== DEBUG MONITORING JADWAL PERBAIKAN ===\n\n";
+    echo "1) Total baris mentah dari query: " . count($raw_rows) . "\n\n";
+
+    echo "2) Nilai kolom 'bidang' ASLI yang ditemukan di database (dari hasil query ini):\n";
+    if (empty($bidang_asli_ditemukan)) {
+        echo "   (kosong - berarti query tidak mengembalikan baris apapun.\n";
+        echo "    Cek apakah memang ada data permintaan_perbaikan dengan status\n";
+        echo "    'Disetujui_KARU_QC', 'QC', atau 'Dikembalikan_sa' di database.)\n";
+    } else {
+        foreach ($bidang_asli_ditemukan as $b => $jumlah) {
+            echo "   - \"$b\" ($jumlah baris)\n";
+        }
+    }
+
+    echo "\n3) Daftar bidang yang di-hardcode di \$bidang_list (yang dipakai untuk render card):\n";
+    foreach ($bidang_list as $b) {
+        echo "   - \"$b\"\n";
+    }
+
+    echo "\n4) Hasil pengelompokan per bidang (setelah pencocokan case-insensitive):\n";
+    foreach ($bidang_list as $b) {
+        $jumlah = isset($data_per_bidang[$b]) ? count($data_per_bidang[$b]) : 0;
+        echo "   - $b: $jumlah unit\n";
+    }
+
+    echo "\n=> Kalau di poin (2) nilai bidang beda penulisannya dengan poin (3),\n";
+    echo "   itu sebabnya data tidak muncul di card (dulu pencocokannya persis/case-sensitive).\n";
+    echo "   Sekarang sudah dibuat case-insensitive + trim, tapi kalau penulisannya\n";
+    echo "   beda jauh (bukan cuma beda kapital/spasi), \$bidang_list di atas perlu\n";
+    echo "   disesuaikan dengan nilai asli di database.\n";
+    echo '</div>';
 }
 
 // Fungsi hitung durasi
 function hitungDurasi($tgl_mulai) {
+    if (empty($tgl_mulai)) {
+        return [
+            'hari' => 0, 'jam' => 0, 'menit' => 0, 'total_jam' => 0, 'label' => '0j 0m'
+        ];
+    }
+
     $mulai = new DateTime($tgl_mulai);
     $now = new DateTime();
-    
+
     if ($mulai > $now) {
         return [
             'hari' => 0,
@@ -63,10 +131,10 @@ function hitungDurasi($tgl_mulai) {
             'label' => '0j 0m'
         ];
     }
-    
+
     $diff = $mulai->diff($now);
     $total_jam = ($diff->d * 24) + $diff->h;
-    
+
     return [
         'hari' => $diff->d,
         'jam' => $diff->h,
@@ -109,13 +177,13 @@ function hitungStatistik($data) {
         'normal' => 0,
         'total' => count($data)
     ];
-    
+
     foreach ($data as $item) {
         $durasi = hitungDurasi($item['tgl_disetujui_karu_qc']);
         $priority = getPriorityClass($durasi['total_jam']);
         $stats[$priority]++;
     }
-    
+
     return $stats;
 }
 
@@ -126,6 +194,7 @@ include "navbar.php";
 <html lang="id">
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" href="../foto/favicon.ico" type="image/x-icon">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monitoring Jadwal Perbaikan</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -1068,7 +1137,7 @@ include "navbar.php";
                                                 </div>
                                                 <div class="detail-item">
                                                     <i class="fas fa-building"></i>
-                                                    <span><?= htmlspecialchars($item['nama_rekanan']) ?></span>
+                                                    <span><?= htmlspecialchars($item['nama_rekanan'] ?? '-') ?></span>
                                                 </div>
                                                 <div class="detail-item">
                                                     <i class="fas fa-car"></i>
@@ -1076,7 +1145,7 @@ include "navbar.php";
                                                 </div>
                                                 <div class="detail-item">
                                                     <i class="fas fa-calendar"></i>
-                                                    <span><?= date('d/m/Y H:i', strtotime($item['tgl_disetujui_karu_qc'])) ?></span>
+                                                    <span><?= $item['tgl_disetujui_karu_qc'] ? date('d/m/Y H:i', strtotime($item['tgl_disetujui_karu_qc'])) : '-' ?></span>
                                                 </div>
                                             </div>
 
@@ -1133,7 +1202,7 @@ include "navbar.php";
                                                 </div>
                                                 <div class="detail-item">
                                                     <i class="fas fa-building"></i>
-                                                    <span><?= htmlspecialchars($item['nama_rekanan']) ?></span>
+                                                    <span><?= htmlspecialchars($item['nama_rekanan'] ?? '-') ?></span>
                                                 </div>
                                                 <div class="detail-item">
                                                     <i class="fas fa-car"></i>
@@ -1141,7 +1210,7 @@ include "navbar.php";
                                                 </div>
                                                 <div class="detail-item">
                                                     <i class="fas fa-calendar"></i>
-                                                    <span><?= date('d/m/Y H:i', strtotime($item['tgl_disetujui_karu_qc'])) ?></span>
+                                                    <span><?= $item['tgl_disetujui_karu_qc'] ? date('d/m/Y H:i', strtotime($item['tgl_disetujui_karu_qc'])) : '-' ?></span>
                                                 </div>
                                             </div>
 

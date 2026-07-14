@@ -3,6 +3,24 @@
 include "../inc/config.php";
 requireAuth('admin');
 
+// ==================== ERROR HANDLING (mencegah 500 tanpa pesan jelas) ====================
+// Simpan error ke log server, JANGAN ditampilkan ke user di production.
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+
+/**
+ * Jalankan query dengan aman. Jika query gagal, catat ke error log
+ * (bukan crash / fatal error) dan kembalikan false.
+ */
+function safe_query($connection, $sql, $label = 'query') {
+    $res = mysqli_query($connection, $sql);
+    if ($res === false) {
+        error_log("[riwayat_rekanan.php] Query gagal ($label): " . mysqli_error($connection) . " | SQL: " . $sql);
+    }
+    return $res;
+}
+
 // ==================== KONFIGURASI PAGINATION ====================
 $view_all = isset($_GET['view_all']) && $_GET['view_all'] == '1'; // Flag untuk lihat semua data
 
@@ -13,7 +31,14 @@ if ($view_all) {
     $offset = 0;
 } else {
     // Normal pagination
+    // Batasi limit ke pilihan yang valid saja agar tidak terjadi
+    // pembagian dengan nol (limit=0 / limit=abc) yang menyebabkan
+    // fatal error "Division by zero" di PHP 8+.
+    $allowed_limits = [25, 50, 100, 200];
     $records_per_page = isset($_GET['limit']) ? (int)$_GET['limit'] : 50;
+    if (!in_array($records_per_page, $allowed_limits, true)) {
+        $records_per_page = 50;
+    }
     $current_page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
     $offset = ($current_page - 1) * $records_per_page;
 }
@@ -49,7 +74,7 @@ $query_rekanan = "SELECT DISTINCT r.id_rekanan, r.nama_rekanan
                   )
                   ORDER BY r.nama_rekanan
                   LIMIT 100"; // Batasi jumlah untuk performa
-$result_rekanan = mysqli_query($connection, $query_rekanan);
+$result_rekanan = safe_query($connection, $query_rekanan, 'query_rekanan');
 
 $query_bidang = "SELECT DISTINCT k.bidang 
                  FROM kendaraan k
@@ -61,7 +86,7 @@ $query_bidang = "SELECT DISTINCT k.bidang
                  )
                  ORDER BY k.bidang
                  LIMIT 50";
-$result_bidang = mysqli_query($connection, $query_bidang);
+$result_bidang = safe_query($connection, $query_bidang, 'query_bidang');
 
 // Untuk nopol, gunakan AJAX autocomplete (lihat bagian JavaScript di bawah)
 
@@ -138,9 +163,13 @@ if (!empty($filter_tipe)) {
     $count_sql .= " UNION ALL " . $sparepart_count . ") as temp";
 }
 
-$count_result = mysqli_query($connection, $count_sql);
-$total_records = mysqli_fetch_assoc($count_result)['total'];
-$total_pages = ceil($total_records / $records_per_page);
+$count_result = safe_query($connection, $count_sql, 'count_sql');
+$total_records = ($count_result !== false)
+    ? (int)(mysqli_fetch_assoc($count_result)['total'] ?? 0)
+    : 0;
+// $records_per_page dijamin > 0 di atas (lihat validasi $allowed_limits),
+// tapi tetap dijaga di sini agar tidak pernah terjadi division by zero.
+$total_pages = ($records_per_page > 0) ? (int)ceil($total_records / $records_per_page) : 1;
 
 // ==================== MAIN QUERY dengan PAGINATION ====================
 $sql_jasa = "SELECT 
@@ -199,7 +228,7 @@ if (!$view_all) {
     $sql .= " LIMIT " . $offset . ", " . $records_per_page;
 }
 
-$result = mysqli_query($connection, $sql);
+$result = safe_query($connection, $sql, 'main_sql');
 
 // ==================== HITUNG GRAND TOTAL (untuk halaman ini saja) ====================
 $grand_jasa = 0;
@@ -231,8 +260,10 @@ FROM (
     " . $sql_sparepart . "
 ) as all_data";
 
-$grand_total_result = mysqli_query($connection, $sql_grand_total);
-$grand_total_data = mysqli_fetch_assoc($grand_total_result);
+$grand_total_result = safe_query($connection, $sql_grand_total, 'grand_total_sql');
+$grand_total_data = ($grand_total_result !== false)
+    ? mysqli_fetch_assoc($grand_total_result)
+    : ['total_jasa' => 0, 'total_sparepart' => 0, 'total_keseluruhan' => 0];
 
 include "navbar.php";
 ?>

@@ -43,8 +43,9 @@ function formatJangkaWaktu($tgl_mulai, $tgl_selesai) {
     }
     return $hari . ' hari';
 }
-
 // Handle Excel Export
+// CATATAN: Export TIDAK memakai LIMIT/OFFSET pagination.
+// Export selalu mengambil SEMUA data yang cocok dengan filter yang aktif.
 if (isset($_GET['export']) && $_GET['export'] == 'excel') {
     $search = isset($_GET['search']) ? mysqli_real_escape_string($connection, $_GET['search']) : '';
     $bulan = isset($_GET['bulan']) ? mysqli_real_escape_string($connection, $_GET['bulan']) : '';
@@ -85,15 +86,17 @@ if (isset($_GET['export']) && $_GET['export'] == 'excel') {
         k.nopol,
         k.jenis_kendaraan,
         k.bidang,
-        u_driver.username AS driver_nama,
-        u_sa.username AS sa_nama,
-        u_karu.username AS karu_nama,
+        u_driver.nama AS driver_nama,
+        u_sa.nama AS sa_nama,
+        u_karu.nama AS karu_nama,
+        u_qc.nama AS qc_nama,
         r.nama_rekanan
     FROM permintaan_perbaikan p
     LEFT JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
     LEFT JOIN users u_driver ON p.id_pengaju = u_driver.id_user
     LEFT JOIN users u_sa ON p.admin_sa = u_sa.id_user
     LEFT JOIN users u_karu ON p.admin_karu_qc = u_karu.id_user
+    LEFT JOIN users u_qc ON p.admin_qc = u_qc.id_user
     LEFT JOIN rekanan r ON p.id_rekanan = r.id_rekanan
     $where
     ORDER BY p.tgl_selesai DESC
@@ -127,10 +130,11 @@ if (isset($_GET['export']) && $_GET['export'] == 'excel') {
     echo '<th>Nomor Asset</th>';
     echo '<th>Jenis Kendaraan</th>';
     echo '<th>Bidang</th>';
-    echo '<th>Pengaju/Driver</th>';
+    echo '<th>Pengaju</th>';
     echo '<th>Tanggal Diajukan</th>';
-    echo '<th>Diperiksa Oleh (SA)</th>';
+    echo '<th>Disetujui SA</th>';
     echo '<th>Tanggal Diperiksa SA</th>';
+    echo '<th>Diperiksa Oleh (QC)</th>';
     echo '<th>Disetujui Oleh (KARU QC)</th>';
     echo '<th>Tanggal Disetujui KARU QC</th>';
     echo '<th>Tanggal Selesai</th>';
@@ -139,6 +143,13 @@ if (isset($_GET['export']) && $_GET['export'] == 'excel') {
     echo '<th>Biaya Jasa</th>';
     echo '<th>Biaya Sparepart</th>';
     echo '<th>Total Biaya</th>';
+    // === kolom detail baru ===
+    echo '<th>Jenis Item</th>';
+    echo '<th>Kode Item</th>';
+    echo '<th>Nama Item</th>';
+    echo '<th>Qty</th>';
+    echo '<th>Harga Satuan</th>';
+    echo '<th>Subtotal Item</th>';
     echo '</tr>';
     echo '</thead>';
     echo '<tbody>';
@@ -147,26 +158,112 @@ if (isset($_GET['export']) && $_GET['export'] == 'excel') {
         $no = 1;
         while ($row = mysqli_fetch_assoc($result)) {
             $jangka_waktu = formatJangkaWaktu($row['tgl_disetujui_karu_qc'], $row['tgl_selesai']);
-            
-            echo '<tr>';
-            echo '<td style="text-align: center;">' . $no++ . '</td>';
-            echo '<td class="number">' . htmlspecialchars($row['nomor_pengajuan']) . '</td>';
-            echo '<td class="number">' . htmlspecialchars($row['nopol']) . '</td>';
-            echo '<td>' . htmlspecialchars($row['jenis_kendaraan']) . '</td>';
-            echo '<td>' . htmlspecialchars($row['bidang']) . '</td>';
-            echo '<td>' . htmlspecialchars($row['driver_nama'] ?? '-') . '</td>';
-            echo '<td>' . ($row['tgl_pengajuan'] ? date('d/m/Y H:i', strtotime($row['tgl_pengajuan'])) : '-') . '</td>';
-            echo '<td>' . htmlspecialchars($row['sa_nama'] ?? '-') . '</td>';
-            echo '<td>' . ($row['tgl_diperiksa_sa'] ? date('d/m/Y H:i', strtotime($row['tgl_diperiksa_sa'])) : '-') . '</td>';
-            echo '<td>' . htmlspecialchars($row['karu_nama'] ?? '-') . '</td>';
-            echo '<td>' . ($row['tgl_disetujui_karu_qc'] ? date('d/m/Y H:i', strtotime($row['tgl_disetujui_karu_qc'])) : '-') . '</td>';
-            echo '<td>' . ($row['tgl_selesai'] ? date('d/m/Y H:i', strtotime($row['tgl_selesai'])) : '-') . '</td>';
-            echo '<td>' . $jangka_waktu . '</td>';
-            echo '<td>' . htmlspecialchars($row['nama_rekanan'] ?? '-') . '</td>';
-            echo '<td class="currency">' . number_format($row['total_perbaikan'], 0, ',', '.') . '</td>';
-            echo '<td class="currency">' . number_format($row['total_sparepart'], 0, ',', '.') . '</td>';
-            echo '<td class="currency">' . number_format($row['grand_total'], 0, ',', '.') . '</td>';
-            echo '</tr>';
+
+            // Kolom-kolom info permintaan yang diulang tiap baris item (No Pengajuan s.d. Rekanan)
+            $kolom_permintaan = '';
+            $kolom_permintaan .= '<td class="number">' . htmlspecialchars($row['nomor_pengajuan']) . '</td>';
+            $kolom_permintaan .= '<td class="number">' . htmlspecialchars($row['nopol']) . '</td>';
+            $kolom_permintaan .= '<td>' . htmlspecialchars($row['jenis_kendaraan']) . '</td>';
+            $kolom_permintaan .= '<td>' . htmlspecialchars($row['bidang']) . '</td>';
+            $kolom_permintaan .= '<td>' . htmlspecialchars($row['driver_nama'] ?? '-') . '</td>';
+            $kolom_permintaan .= '<td>' . ($row['tgl_pengajuan'] ? date('d/m/Y H:i', strtotime($row['tgl_pengajuan'])) : '-') . '</td>';
+            $kolom_permintaan .= '<td>' . htmlspecialchars($row['sa_nama'] ?? '-') . '</td>';
+            $kolom_permintaan .= '<td>' . ($row['tgl_diperiksa_sa'] ? date('d/m/Y H:i', strtotime($row['tgl_diperiksa_sa'])) : '-') . '</td>';
+            $kolom_permintaan .= '<td>' . htmlspecialchars($row['qc_nama'] ?? '-') . '</td>';
+            $kolom_permintaan .= '<td>' . htmlspecialchars($row['karu_nama'] ?? '-') . '</td>';
+            $kolom_permintaan .= '<td>' . ($row['tgl_disetujui_karu_qc'] ? date('d/m/Y H:i', strtotime($row['tgl_disetujui_karu_qc'])) : '-') . '</td>';
+            $kolom_permintaan .= '<td>' . ($row['tgl_selesai'] ? date('d/m/Y H:i', strtotime($row['tgl_selesai'])) : '-') . '</td>';
+            $kolom_permintaan .= '<td>' . $jangka_waktu . '</td>';
+            $kolom_permintaan .= '<td>' . htmlspecialchars($row['nama_rekanan'] ?? '-') . '</td>';
+            // Catatan: Biaya Jasa, Biaya Sparepart, Total Biaya TIDAK dimasukkan di sini
+            // karena dicetak terpisah dengan rowspan (lihat di bawah)
+
+            // Ambil detail jasa
+            $id_permintaan = (int) $row['id_permintaan'];
+            $jasa_items = [];
+            $q_jasa = mysqli_query($connection, "
+                SELECT kode_pekerjaan, nama_pekerjaan, qty, harga, subtotal
+                FROM perbaikan_detail
+                WHERE id_permintaan = $id_permintaan
+                ORDER BY id_detail ASC
+            ");
+            while ($j = mysqli_fetch_assoc($q_jasa)) {
+                $jasa_items[] = $j;
+            }
+
+            // Ambil detail sparepart
+            $sparepart_items = [];
+            $q_sp = mysqli_query($connection, "
+                SELECT s.kode_sparepart, s.nama_sparepart, s.satuan, sd.qty, sd.harga, sd.subtotal
+                FROM sparepart_detail sd
+                LEFT JOIN sparepart s ON sd.id_sparepart = s.id_sparepart
+                WHERE sd.id_permintaan = $id_permintaan
+                ORDER BY sd.id_detail ASC
+            ");
+            while ($s = mysqli_fetch_assoc($q_sp)) {
+                $sparepart_items[] = $s;
+            }
+
+            $all_items = [];
+            foreach ($jasa_items as $j) {
+                $all_items[] = [
+                    'jenis' => 'Jasa',
+                    'kode'  => $j['kode_pekerjaan'],
+                    'nama'  => $j['nama_pekerjaan'],
+                    'qty'   => $j['qty'],
+                    'harga' => $j['harga'],
+                    'subtotal' => $j['subtotal'],
+                ];
+            }
+            foreach ($sparepart_items as $s) {
+                $all_items[] = [
+                    'jenis' => 'Sparepart',
+                    'kode'  => $s['kode_sparepart'] ?? '-',
+                    'nama'  => $s['nama_sparepart'] ?? '-',
+                    'qty'   => $s['qty'],
+                    'harga' => $s['harga'],
+                    'subtotal' => $s['subtotal'],
+                ];
+            }
+
+            // Rowspan = jumlah baris item yang akan dicetak untuk permintaan ini
+            $rowspan = count($all_items) > 0 ? count($all_items) : 1;
+
+            if (count($all_items) > 0) {
+                $item_index = 0;
+                foreach ($all_items as $item) {
+                    echo '<tr>';
+                    echo '<td style="text-align: center;">' . $no++ . '</td>';
+                    echo $kolom_permintaan;
+
+                    // Biaya Jasa, Biaya Sparepart, Total Biaya - HANYA di baris pertama, pakai rowspan
+                    if ($item_index === 0) {
+                        echo '<td class="currency" rowspan="' . $rowspan . '">' . number_format($row['total_perbaikan'], 0, ',', '.') . '</td>';
+                        echo '<td class="currency" rowspan="' . $rowspan . '">' . number_format($row['total_sparepart'], 0, ',', '.') . '</td>';
+                        echo '<td class="currency" rowspan="' . $rowspan . '">' . number_format($row['grand_total'], 0, ',', '.') . '</td>';
+                    }
+
+                    echo '<td>' . htmlspecialchars($item['jenis']) . '</td>';
+                    echo '<td class="number">' . htmlspecialchars($item['kode'] ?? '-') . '</td>';
+                    echo '<td>' . htmlspecialchars($item['nama'] ?? '-') . '</td>';
+                    echo '<td style="text-align: center;">' . htmlspecialchars($item['qty']) . '</td>';
+                    echo '<td class="currency">' . number_format($item['harga'], 0, ',', '.') . '</td>';
+                    echo '<td class="currency">' . number_format($item['subtotal'], 0, ',', '.') . '</td>';
+                    echo '</tr>';
+
+                    $item_index++;
+                }
+            } else {
+                // Tetap tampilkan 1 baris walau tidak ada item, biar data permintaan tidak hilang
+                echo '<tr>';
+                echo '<td style="text-align: center;">' . $no++ . '</td>';
+                echo $kolom_permintaan;
+                echo '<td class="currency">' . number_format($row['total_perbaikan'], 0, ',', '.') . '</td>';
+                echo '<td class="currency">' . number_format($row['total_sparepart'], 0, ',', '.') . '</td>';
+                echo '<td class="currency">' . number_format($row['grand_total'], 0, ',', '.') . '</td>';
+                echo '<td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td>';
+                echo '</tr>';
+            }
         }
     }
     
@@ -176,7 +273,6 @@ if (isset($_GET['export']) && $_GET['export'] == 'excel') {
     echo '</html>';
     exit;
 }
-
 include "navbar.php";
 
 $search = isset($_GET['search']) ? mysqli_real_escape_string($connection, $_GET['search']) : '';
@@ -212,6 +308,26 @@ if ($tgl_dari != '' && $tgl_sampai != '') {
     $where .= " AND DATE(p.tgl_selesai) <= '$tgl_sampai'";
 }
 
+// ===== PAGINATION =====
+// Hitung dulu total data yang cocok dengan filter (tanpa LIMIT), buat info total & jumlah halaman
+$query_count = "
+SELECT COUNT(*) AS total
+FROM permintaan_perbaikan p
+LEFT JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
+$where
+";
+$result_count = mysqli_query($connection, $query_count);
+$total_data = (int) (mysqli_fetch_assoc($result_count)['total'] ?? 0);
+
+$limit = 50;
+$page = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+$total_pages = max(1, (int) ceil($total_data / $limit));
+if ($page > $total_pages) {
+    $page = $total_pages;
+}
+$offset = ($page - 1) * $limit;
+// ===== END PAGINATION =====
+
 $query = "
 SELECT 
     p.*,
@@ -230,10 +346,13 @@ LEFT JOIN users u_karu ON p.admin_karu_qc = u_karu.id_user
 LEFT JOIN rekanan r ON p.id_rekanan = r.id_rekanan
 $where
 ORDER BY p.tgl_selesai DESC
+LIMIT $limit OFFSET $offset
 ";
 
 $result = mysqli_query($connection, $query);
 
+// Total biaya (jasa/sparepart/grand total) tetap dihitung dari SEMUA data yang cocok filter,
+// bukan hanya data di halaman ini
 $query_totals = "
 SELECT 
     SUM(p.total_perbaikan) AS total_jasa,
@@ -251,6 +370,24 @@ $result_bidang = mysqli_query($connection, $query_bidang);
 
 $query_rekanan = "SELECT id_rekanan, nama_rekanan FROM rekanan ORDER BY nama_rekanan";
 $result_rekanan = mysqli_query($connection, $query_rekanan);
+
+// Helper untuk build URL pagination, tetap bawa semua filter aktif
+function buildPageUrl($targetPage, $params) {
+    $params['page'] = $targetPage;
+    $params = array_filter($params, function ($v) {
+        return $v !== '' && $v !== null;
+    });
+    return '?' . http_build_query($params);
+}
+$filter_params = [
+    'search' => $search,
+    'bulan' => $bulan,
+    'tahun' => $tahun,
+    'bidang' => $bidang,
+    'rekanan' => $rekanan,
+    'tgl_dari' => $tgl_dari,
+    'tgl_sampai' => $tgl_sampai,
+];
 ?>
 
 <!DOCTYPE html>
@@ -313,12 +450,19 @@ $result_rekanan = mysqli_query($connection, $query_rekanan);
         .btn-detail:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4); }
         .no-data { text-align: center; padding: 60px 20px; color: #999; }
         .no-data i { font-size: 48px; margin-bottom: 15px; opacity: 0.3; }
+        .pagination-container { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 20px; padding-top: 15px; border-top: 2px solid #f0f0f0; }
+        .pagination-info { font-size: 13px; color: #6b7280; }
+        .pagination-links { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .page-link { display: inline-flex; align-items: center; justify-content: center; min-width: 36px; height: 36px; padding: 0 10px; border-radius: 8px; background: #f8f9fa; color: #2c3e50; text-decoration: none; font-size: 13px; font-weight: 600; border: 1px solid #e0e0e0; transition: all 0.2s ease; }
+        .page-link:hover { background: #10b981; color: white; border-color: #10b981; }
+        .page-link.active { background: rgb(9, 120, 83); color: white; border-color: rgb(9, 120, 83); cursor: default; }
         @media (max-width: 768px) {
             .main-container { padding: 15px; }
             .stats-container, .filter-grid { grid-template-columns: 1fr; }
             .filter-section, .table-container { padding: 15px; }
             .table-header { flex-direction: column; align-items: flex-start; }
             table { min-width: 1200px; }
+            .pagination-container { flex-direction: column; align-items: flex-start; }
         }
     </style>
 </head>
@@ -328,7 +472,7 @@ $result_rekanan = mysqli_query($connection, $query_rekanan);
     <div class="stats-container">
         <div class="stat-card">
             <div class="stat-label">Total Unit Dikerjakan</div>
-            <div class="stat-value"><?= mysqli_num_rows($result) ?></div>
+            <div class="stat-value"><?= $total_data ?></div>
         </div>
         <div class="stat-card">
             <div class="stat-label">Total Biaya Jasa</div>
@@ -417,7 +561,7 @@ $result_rekanan = mysqli_query($connection, $query_rekanan);
     <div class="table-container">
         <div class="table-header">
             <h2 class="table-title"><i class="fas fa-list"></i> Data Riwayat Perbaikan</h2>
-            <span class="count-badge"><?= mysqli_num_rows($result) ?> Data</span>
+            <span class="count-badge"><?= mysqli_num_rows($result) ?> dari <?= $total_data ?> Data</span>
         </div>
 
         <div class="table-scroll">
@@ -439,7 +583,7 @@ $result_rekanan = mysqli_query($connection, $query_rekanan);
                 <tbody>
                     <?php
                     if (mysqli_num_rows($result) > 0):
-                        $no = 1;
+                        $no = $offset + 1;
                         mysqli_data_seek($result, 0);
                         while ($row = mysqli_fetch_assoc($result)):
                             $jangka_waktu = formatJangkaWaktu($row['tgl_disetujui_karu_qc'], $row['tgl_selesai']);
@@ -477,19 +621,19 @@ $result_rekanan = mysqli_query($connection, $query_rekanan);
                                 <?php if ($row['tgl_diperiksa_sa']): ?>
                                 <div class="timeline-item">
                                     <div class="timeline-icon green"><i class="fas fa-check" style="font-size: 8px;"></i></div>
-                                    <div><strong style="font-size: 11px;">Diperiksa SA</strong><div class="timeline-date"><?= date('d/m/Y H:i', strtotime($row['tgl_diperiksa_sa'])) ?></div></div>
+                                    <div><strong style="font-size: 11px;">Disetujui SA</strong><div class="timeline-date"><?= date('d/m/Y H:i', strtotime($row['tgl_diperiksa_sa'])) ?></div></div>
                                 </div>
                                 <?php endif; ?>
                                 <?php if ($row['tgl_disetujui_karu_qc']): ?>
                                 <div class="timeline-item">
                                     <div class="timeline-icon green"><i class="fas fa-check" style="font-size: 8px;"></i></div>
-                                    <div><strong style="font-size: 11px;">Disetujui KARU QC</strong><div class="timeline-date"><?= date('d/m/Y H:i', strtotime($row['tgl_disetujui_karu_qc'])) ?></div></div>
+                                    <div><strong style="font-size: 11px;">Diperiksa QC</strong><div class="timeline-date"><?= date('d/m/Y H:i', strtotime($row['tgl_disetujui_karu_qc'])) ?></div></div>
                                 </div>
                                 <?php endif; ?>
                                 <?php if ($row['tgl_selesai']): ?>
                                 <div class="timeline-item">
                                     <div class="timeline-icon green"><i class="fas fa-check" style="font-size: 8px;"></i></div>
-                                    <div><strong style="font-size: 11px; color: #10b981;">Selesai</strong><div class="timeline-date"><?= date('d/m/Y H:i', strtotime($row['tgl_selesai'])) ?></div></div>
+                                    <div><strong style="font-size: 11px; color: #10b981;">Mengetahui Selesai</strong><div class="timeline-date"><?= date('d/m/Y H:i', strtotime($row['tgl_selesai'])) ?></div></div>
                                 </div>
                                 <?php endif; ?>
                             </div>
@@ -541,6 +685,37 @@ $result_rekanan = mysqli_query($connection, $query_rekanan);
                 </tbody>
             </table>
         </div>
+
+        <?php if ($total_pages > 1): ?>
+        <div class="pagination-container">
+            <div class="pagination-info">
+                Halaman <?= $page ?> dari <?= $total_pages ?> (<?= $total_data ?> total data)
+            </div>
+            <div class="pagination-links">
+                <?php if ($page > 1): ?>
+                    <a href="<?= buildPageUrl(1, $filter_params) ?>" class="page-link" title="Halaman awal">&laquo;</a>
+                    <a href="<?= buildPageUrl($page - 1, $filter_params) ?>" class="page-link" title="Sebelumnya">&lsaquo;</a>
+                <?php endif; ?>
+
+                <?php
+                $start = max(1, $page - 2);
+                $end = min($total_pages, $page + 2);
+                for ($i = $start; $i <= $end; $i++):
+                ?>
+                    <?php if ($i == $page): ?>
+                        <span class="page-link active"><?= $i ?></span>
+                    <?php else: ?>
+                        <a href="<?= buildPageUrl($i, $filter_params) ?>" class="page-link"><?= $i ?></a>
+                    <?php endif; ?>
+                <?php endfor; ?>
+
+                <?php if ($page < $total_pages): ?>
+                    <a href="<?= buildPageUrl($page + 1, $filter_params) ?>" class="page-link" title="Berikutnya">&rsaquo;</a>
+                    <a href="<?= buildPageUrl($total_pages, $filter_params) ?>" class="page-link" title="Halaman akhir">&raquo;</a>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
 </div>
 
@@ -574,6 +749,10 @@ function exportExcel() {
     if (rekanan) url += '&rekanan=' + encodeURIComponent(rekanan);
     if (tgl_dari) url += '&tgl_dari=' + encodeURIComponent(tgl_dari);
     if (tgl_sampai) url += '&tgl_sampai=' + encodeURIComponent(tgl_sampai);
+
+    // ✅ wajib: sertakan armada_tab supaya export TIDAK kena splash screen loading truk
+    const armadaTab = <?= json_encode(get_armada_tab_id()) ?>;
+    if (armadaTab) url += '&armada_tab=' + encodeURIComponent(armadaTab);
     
     window.location.href = url;
 }

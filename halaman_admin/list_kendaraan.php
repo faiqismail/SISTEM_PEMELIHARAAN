@@ -14,7 +14,10 @@ requireAuth('admin');
 // PROSES KIRIM PERSETUJUAN KE PENGAWAS
 if (isset($_POST['kirim_persetujuan'])) {
     $id_permintaan = mysqli_real_escape_string($connection, $_POST['id_permintaan']);
-    $catatan_sa = mysqli_real_escape_string($connection, $_POST['catatan_sa']);
+
+    // Catatan SA bersifat OPSIONAL. Jika kosong, otomatis diisi '-' agar data tidak kosong.
+    $catatan_sa_raw = isset($_POST['catatan_sa']) ? trim($_POST['catatan_sa']) : '';
+    $catatan_sa = empty($catatan_sa_raw) ? '-' : mysqli_real_escape_string($connection, $catatan_sa_raw);
     
     $result = mysqli_query($connection, "
         UPDATE permintaan_perbaikan 
@@ -38,7 +41,10 @@ if (isset($_POST['kirim_persetujuan'])) {
 // PROSES EDIT CATATAN SA (JIKA DITOLAK)
 if (isset($_POST['edit_catatan_sa'])) {
     $id_permintaan = mysqli_real_escape_string($connection, $_POST['id_permintaan']);
-    $catatan_sa = mysqli_real_escape_string($connection, $_POST['catatan_sa_edit']);
+
+    // Catatan SA bersifat OPSIONAL. Jika kosong, otomatis diisi '-' agar data tidak kosong.
+    $catatan_sa_edit_raw = isset($_POST['catatan_sa_edit']) ? trim($_POST['catatan_sa_edit']) : '';
+    $catatan_sa = empty($catatan_sa_edit_raw) ? '-' : mysqli_real_escape_string($connection, $catatan_sa_edit_raw);
     
     $result = mysqli_query($connection, "
         UPDATE permintaan_perbaikan 
@@ -127,7 +133,7 @@ SELECT
     p.catatan_qc,
     p.keterangan_kembalikan,
     p.tgl_persetujuan_pengawas,
-    u.username AS pengaju_nama, 
+    u.nama AS pengaju_nama,
     u_sa.username AS sa_nama
 FROM kendaraan k
 INNER JOIN permintaan_perbaikan p ON k.id_kendaraan = p.id_kendaraan
@@ -156,6 +162,18 @@ $count_disetujui_pengawas = mysqli_num_rows(mysqli_query($connection, "SELECT * 
 $success_message = $_SESSION['success_message'] ?? '';
 $error_message = $_SESSION['error_message'] ?? '';
 unset($_SESSION['success_message'], $_SESSION['error_message']);
+
+// ============================================================
+// TAMBAHAN: DAFTAR USER UNTUK PILIHAN KARU QC SAAT CETAK
+// (Hanya dipakai untuk dropdown, TIDAK disimpan ke database)
+// ============================================================
+$daftar_user_karuqc = [];
+$users_karuqc_result = mysqli_query($connection, "SELECT id_user, nama, jabatan FROM users WHERE status='Aktif' ORDER BY nama ASC");
+if ($users_karuqc_result) {
+    while ($u = mysqli_fetch_assoc($users_karuqc_result)) {
+        $daftar_user_karuqc[] = $u;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -169,7 +187,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background:rgb(185, 224, 204); min-height: 100vh; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .main-content { padding: 30px; }
+        .main-content { padding: 30px; padding-bottom: 100px; }
         @media (max-width: 1023px) { .main-content { margin-left: 0; padding-top: 90px; } }
         
         .card-section { 
@@ -748,6 +766,12 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
             color: #ef4444;
         }
 
+        .form-label .optional {
+            color: #6c757d;
+            font-weight: 500;
+            font-size: 0.85em;
+        }
+
         textarea.form-control {
             width: 100%;
             padding: 12px;
@@ -761,6 +785,24 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
         }
 
         textarea.form-control:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+        }
+
+        select.form-select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-family: inherit;
+            transition: all 0.3s;
+            background: white;
+            cursor: pointer;
+        }
+
+        select.form-select:focus {
             border-color: #667eea;
             outline: none;
             box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
@@ -849,6 +891,165 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
         .pengaju-info i {
             color: #f59e0b;
         }
+
+        /* ============================================================
+           TAMBAHAN: CHECKBOX CETAK & FLOATING PRINT BAR
+        ============================================================ */
+        .cetak-checkbox {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #8b5cf6;
+        }
+
+        .print-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            color: white;
+            padding: 16px 30px;
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 9998;
+            box-shadow: 0 -8px 25px rgba(0,0,0,0.35);
+            animation: slideUpBar 0.3s ease-out;
+        }
+
+        .print-bar.show {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        @keyframes slideUpBar {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        .print-bar-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .print-bar-info #printCount {
+            background: #8b5cf6;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 700;
+            min-width: 28px;
+            text-align: center;
+        }
+
+        .btn-print-bar {
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s;
+            font-size: 0.9rem;
+        }
+
+        .btn-select-all {
+            background: #334155;
+            color: white;
+        }
+
+        .btn-select-all:hover {
+            background: #475569;
+        }
+
+        .btn-print-now {
+            background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+            color: white;
+        }
+
+        .btn-print-now:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+        }
+
+        /* ============================================================
+           TAMBAHAN: SEARCHABLE DROPDOWN UNTUK PILIH KARU QC
+        ============================================================ */
+        .searchable-select {
+            position: relative;
+        }
+
+        .searchable-select input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-family: inherit;
+            transition: all 0.3s;
+            background: white;
+        }
+
+        .searchable-select input[type="text"]:focus {
+            border-color: #667eea;
+            outline: none;
+            box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+        }
+
+        .searchable-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            max-height: 220px;
+            overflow-y: auto;
+            z-index: 20;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        }
+
+        .searchable-dropdown.show {
+            display: block;
+        }
+
+        .searchable-option {
+            padding: 10px 14px;
+            font-size: 0.88rem;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background 0.15s;
+        }
+
+        .searchable-option:last-child {
+            border-bottom: none;
+        }
+
+        .searchable-option:hover,
+        .searchable-option.active-highlight {
+            background: #ede9fe;
+            color: #5b21b6;
+        }
+
+        .searchable-option.empty-option {
+            color: #6c757d;
+            font-style: italic;
+        }
+
+        .searchable-no-result {
+            padding: 12px 14px;
+            font-size: 0.85rem;
+            color: #999;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -879,7 +1080,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
 <div class="modal" id="approvalModal">
     <div class="modal-content">
         <div class="modal-header">
-            <h3><i class="fas fa-paper-plane"></i> Kirim Persetujuan ke Pengawas</h3>
+            <h3><i class="fas fa-paper-plane"></i> Kirim Persetujuan ke Unit</h3>
             <button class="modal-close" onclick="closeModal('approvalModal')">&times;</button>
         </div>
         <form method="POST" id="approvalForm">
@@ -921,21 +1122,20 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
 
                 <!-- Form Catatan SA -->
                 <div class="form-group">
-                    <label class="form-label required">
-                        <i class="fas fa-comment-medical"></i> Catatan Service Advisor
+                    <label class="form-label">
+                        <i class="fas fa-comment-medical"></i> Catatan Service Advisor <span class="optional">(Opsional)</span>
                     </label>
                     <textarea 
                         name="catatan_sa" 
                         class="form-control" 
-                        placeholder="Tuliskan catatan Anda untuk Pengawas mengenai hasil pemeriksaan, estimasi biaya, atau informasi penting lainnya..."
-                        required
+                        placeholder="Tuliskan catatan Anda untuk Unit mengenai hasil pemeriksaan, estimasi biaya, atau informasi penting lainnya... (opsional)"
                     ></textarea>
                 </div>
 
                 <div class="info-box">
                     <p>
                         <i class="fas fa-info-circle"></i>
-                        <span>Semua informasi di atas (keluhan awal, catatan QC, dan catatan SA) akan dikirim ke Pengawas untuk dipertimbangkan dalam memberikan persetujuan.</span>
+                        <span>Semua informasi di atas (keluhan awal, catatan QC, dan catatan SA) akan dikirim ke Unit untuk dipertimbangkan dalam memberikan persetujuan.</span>
                     </p>
                 </div>
             </div>
@@ -956,7 +1156,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
 <div class="modal" id="editCatatanModal">
     <div class="modal-content">
         <div class="modal-header">
-            <h3><i class="fas fa-edit"></i> Edit & Kirim Ulang ke Pengawas</h3>
+            <h3><i class="fas fa-edit"></i> Edit & Kirim Ulang ke Unit</h3>
             <button class="modal-close" onclick="closeModal('editCatatanModal')">&times;</button>
         </div>
         <form method="POST" id="editCatatanForm">
@@ -977,7 +1177,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                 <!-- Info Penolakan dengan Catatan Pengawas -->
                 <div class="catatan-box">
                     <div class="catatan-label">
-                        <i class="fas fa-times-circle"></i> Ditolak oleh Pengawas
+                        <i class="fas fa-times-circle"></i> Ditolak oleh Unit
                     </div>
                     <div class="catatan-text" id="edit_catatan_pengawas" style="font-weight: 600; margin-top: 8px;">
                         <!-- Catatan pengawas akan diisi via JavaScript -->
@@ -1014,22 +1214,21 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
 
                 <!-- Form Edit Catatan SA -->
                 <div class="form-group">
-                    <label class="form-label required">
-                        <i class="fas fa-comment-medical"></i> Perbarui Catatan Service Advisor
+                    <label class="form-label">
+                        <i class="fas fa-comment-medical"></i> Perbarui Catatan Service Advisor <span class="optional">(Opsional)</span>
                     </label>
                     <textarea 
                         name="catatan_sa_edit" 
                         id="edit_catatan_sa_textarea"
                         class="form-control" 
-                        placeholder="Perbaiki atau tambahkan informasi sesuai catatan pengawas..."
-                        required
+                        placeholder="Perbaiki atau tambahkan informasi sesuai catatan Unit... (opsional)"
                     ></textarea>
                 </div>
 
                 <div class="info-box" style="background: #fef3c7; border-left-color: #f59e0b;">
                     <p style="color: #92400e;">
                         <i class="fas fa-exclamation-triangle"></i>
-                        <span>Pastikan Anda telah memperbaiki atau melengkapi informasi sesuai dengan catatan pengawas sebelum mengirim ulang.</span>
+                        <span>Pastikan Anda telah memperbaiki atau melengkapi informasi sesuai dengan catatan Unit sebelum mengirim ulang.</span>
                     </p>
                 </div>
             </div>
@@ -1043,6 +1242,71 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- ============================================================
+     TAMBAHAN: Modal Pilih Karu QC untuk Cetak
+     (Hanya untuk tampilan cetak, TIDAK disimpan ke database)
+============================================================ -->
+<div class="modal" id="karuQcModal">
+    <div class="modal-content" style="max-width:500px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-user-tie"></i> Pilih Karu QC untuk Cetak</h3>
+            <button class="modal-close" onclick="closeModal('karuQcModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label class="form-label required">
+                    <i class="fas fa-user-tie"></i> Karu QC <span class="optional">(ketik nama atau jabatan untuk mencari)</span>
+                </label>
+                <div class="searchable-select" id="karuQcSearchWrapper">
+                    <input type="text"
+                           id="karuQcSearchInput"
+                           autocomplete="off"
+                           placeholder="Cari berdasarkan nama atau jabatan..."
+                           onfocus="showKaruQcDropdown()"
+                           oninput="filterKaruQcDropdown()">
+                    <input type="hidden" id="karuQcSelect" value="">
+                    <div class="searchable-dropdown" id="karuQcDropdownList">
+                        <div class="searchable-option empty-option"
+                             data-search=""
+                             onclick="return false;">
+                            -- Pilih Karu QC (wajib) --
+                        </div>
+                        <?php foreach ($daftar_user_karuqc as $u):
+                            $nama = htmlspecialchars($u['nama'], ENT_QUOTES);
+                            $jabatan_raw = (!empty($u['jabatan']) && $u['jabatan'] !== '-') ? $u['jabatan'] : '';
+                            $jabatan = htmlspecialchars($jabatan_raw, ENT_QUOTES);
+                            $display = $jabatan !== '' ? $nama . ' - ' . $jabatan : $nama;
+                            $search_text = htmlspecialchars(strtolower($u['nama'] . ' ' . $jabatan_raw), ENT_QUOTES);
+                        ?>
+                        <div class="searchable-option"
+                             data-id="<?= (int) $u['id_user'] ?>"
+                             data-search="<?= $search_text ?>"
+                             onclick="selectKaruQc('<?= (int) $u['id_user'] ?>', this.dataset.display)"
+                             data-display="<?= $display ?>">
+                            <?= $display ?>
+                        </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+            <div class="info-box">
+                <p>
+                    <i class="fas fa-info-circle"></i>
+                    <span>Nama Karu QC hanya digunakan untuk tampilan form cetak dan <strong>tidak</strong> disimpan ke database.</span>
+                </p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn-modal btn-cancel" onclick="closeModal('karuQcModal')">
+                <i class="fas fa-times"></i> Batal
+            </button>
+            <button type="button" class="btn-modal btn-submit" onclick="confirmPrintWithKaruQc()">
+                <i class="fas fa-print"></i> Lanjutkan Cetak
+            </button>
+        </div>
     </div>
 </div>
 
@@ -1151,6 +1415,7 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                         <th>Tanggal</th>
                         <th>Grand Total</th>
                         <th>Keterangan</th>
+                        <th>Cetak</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1189,11 +1454,11 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                                 $status_icon = 'fa-paper-plane';
                             } elseif ($data['persetujuan_pengawas'] == 'Disetujui') {
                                 $status_class = 'status-disetujui-pengawas';
-                                $status_text = 'Disetujui Pengawas';
+                                $status_text = 'Disetujui Unit';
                                 $status_icon = 'fa-check-circle';
                             } elseif ($data['persetujuan_pengawas'] == 'Ditolak') {
                                 $status_class = 'status-ditolak-pengawas';
-                                $status_text = 'Ditolak Pengawas';
+                                $status_text = 'Ditolak Unit';
                                 $status_icon = 'fa-times-circle';
                             } else {
                                 $status_class = 'status-belum-kirim';
@@ -1290,17 +1555,28 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
 
                             <?php if ($data['status'] == 'Diajukan'): ?>
                             <a href="?hapus=<?= $data['id_permintaan'] ?>" 
-                               onclick="return confirm('⚠️ PERINGATAN PENGHAPUSAN PERMANEN ⚠️\n\n📋 No Pengajuan: <?= htmlspecialchars($data['nomor_pengajuan']) ?>\n🚗 Kendaraan: <?= htmlspecialchars($data['nopol']) ?>\n\n❌ DATA AKAN DIHAPUS PERMANEN!\n❌ TIDAK DAPAT DIPULIHKAN KEMBALI!\n❌ PENGAWAS TIDAK AKAN TAHU ALASAN PENGHAPUSAN!\n\nApakah Anda yakin ingin melanjutkan?')" 
+                               onclick="return confirm('⚠️ PERINGATAN PENGHAPUSAN PERMANEN ⚠️\n\n📋 No Pengajuan: <?= htmlspecialchars($data['nomor_pengajuan']) ?>\n🚗 Kendaraan: <?= htmlspecialchars($data['nopol']) ?>\n\n❌ DATA AKAN DIHAPUS PERMANEN!\n❌ TIDAK DAPAT DIPULIHKAN KEMBALI!\n❌ Unit TIDAK AKAN TAHU ALASAN PENGHAPUSAN!\n\nApakah Anda yakin ingin melanjutkan?')" 
                                class="btn-action btn-delete">
                                 <i class="fas fa-trash"></i>
                             </a>
                             <?php endif; ?>
                             </div>
                         </td>
+                        <td style="text-align: center;">
+                            <?php if ($data['status'] == 'Dikembalikan_sa' && $data['persetujuan_pengawas'] == 'Disetujui'): ?>
+                                <input type="checkbox"
+                                       class="cetak-checkbox"
+                                       value="<?= $data['id_permintaan'] ?>"
+                                       data-nomor="<?= htmlspecialchars($data['nomor_pengajuan']) ?>"
+                                       onchange="updatePrintBar()">
+                            <?php else: ?>
+                                <span style="color: #ccc;">-</span>
+                            <?php endif; ?>
+                        </td>
                     </tr>
                 <?php endwhile; else: ?>
                     <tr>
-                        <td colspan="9">
+                        <td colspan="10">
                             <div class="empty-state">
                                 <i class="fas fa-inbox"></i>
                                 <p style="font-size: 1.1rem; margin-top: 10px;">
@@ -1318,6 +1594,22 @@ unset($_SESSION['success_message'], $_SESSION['error_message']);
                 </tbody>
             </table>
         </div>
+    </div>
+</div>
+
+<!-- Floating Bar untuk Cetak Terpilih -->
+<div class="print-bar" id="printBar">
+    <div class="print-bar-info">
+        <i class="fas fa-print"></i>
+        <span id="printCount">0</span> data (Disetujui Unit) terpilih untuk dicetak
+    </div>
+    <div style="display: flex; gap: 10px;">
+        <button class="btn-print-bar btn-select-all" onclick="toggleSelectAll()">
+            <i class="fas fa-check-double"></i> <span id="selectAllText">Pilih Semua</span>
+        </button>
+        <button class="btn-print-bar btn-print-now" onclick="printSelected()">
+            <i class="fas fa-print"></i> Cetak Terpilih
+        </button>
     </div>
 </div>
 
@@ -1357,6 +1649,16 @@ window.addEventListener('DOMContentLoaded', function() {
     // Terapkan ke kedua textarea
     makeUppercase(textareaCatatanSA);
     makeUppercase(textareaCatatanSAEdit);
+
+    // ========================================
+    // TAMBAHAN: Tutup dropdown Karu QC saat klik di luar
+    // ========================================
+    document.addEventListener('click', function(event) {
+        const wrapper = document.getElementById('karuQcSearchWrapper');
+        if (wrapper && !wrapper.contains(event.target)) {
+            document.getElementById('karuQcDropdownList').classList.remove('show');
+        }
+    });
 });
 
 let searchTimeout;
@@ -1464,6 +1766,7 @@ function closeModal(modalId) {
 window.onclick = function(event) {
     const approvalModal = document.getElementById('approvalModal');
     const editModal = document.getElementById('editCatatanModal');
+    const karuQcModal = document.getElementById('karuQcModal');
     
     if (event.target == approvalModal) {
         closeModal('approvalModal');
@@ -1471,14 +1774,155 @@ window.onclick = function(event) {
     if (event.target == editModal) {
         closeModal('editCatatanModal');
     }
+    if (event.target == karuQcModal) {
+        closeModal('karuQcModal');
+    }
 }
 
 document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') {
         closeModal('approvalModal');
         closeModal('editCatatanModal');
+        closeModal('karuQcModal');
     }
 });
+
+// ============================================================
+// TAMBAHAN: LOGIKA CHECKLIST & CETAK TERPILIH (A5)
+// ============================================================
+function updatePrintBar() {
+    const checked = document.querySelectorAll('.cetak-checkbox:checked');
+    const allBoxes = document.querySelectorAll('.cetak-checkbox');
+    const bar = document.getElementById('printBar');
+    const countEl = document.getElementById('printCount');
+
+    countEl.textContent = checked.length;
+
+    if (checked.length > 0) {
+        bar.classList.add('show');
+    } else {
+        bar.classList.remove('show');
+    }
+
+    const selectAllText = document.getElementById('selectAllText');
+    if (allBoxes.length > 0 && checked.length === allBoxes.length) {
+        selectAllText.textContent = 'Batal Semua';
+    } else {
+        selectAllText.textContent = 'Pilih Semua';
+    }
+}
+
+function toggleSelectAll() {
+    const allBoxes = document.querySelectorAll('.cetak-checkbox');
+    const checked = document.querySelectorAll('.cetak-checkbox:checked');
+    const selectAll = checked.length !== allBoxes.length;
+    allBoxes.forEach(cb => cb.checked = selectAll);
+    updatePrintBar();
+}
+
+// ============================================================
+// TAMBAHAN: Pencarian Karu QC berdasarkan Nama & Jabatan
+// ============================================================
+function showKaruQcDropdown() {
+    filterKaruQcDropdown();
+    document.getElementById('karuQcDropdownList').classList.add('show');
+}
+
+function filterKaruQcDropdown() {
+    const keyword = document.getElementById('karuQcSearchInput').value.trim().toLowerCase();
+    const dropdown = document.getElementById('karuQcDropdownList');
+    const options = dropdown.querySelectorAll('.searchable-option');
+    let visibleCount = 0;
+
+    options.forEach(opt => {
+        // Opsi "Tanpa Karu QC" selalu tampil
+        if (opt.classList.contains('empty-option')) {
+            opt.style.display = '';
+            visibleCount++;
+            return;
+        }
+
+        const searchText = opt.dataset.search || '';
+        if (keyword === '' || searchText.includes(keyword)) {
+            opt.style.display = '';
+            visibleCount++;
+        } else {
+            opt.style.display = 'none';
+        }
+    });
+
+    // Tampilkan pesan jika tidak ada hasil (selain opsi kosongkan)
+    let noResultEl = dropdown.querySelector('.searchable-no-result');
+    if (visibleCount <= 1 && keyword !== '') {
+        if (!noResultEl) {
+            noResultEl = document.createElement('div');
+            noResultEl.className = 'searchable-no-result';
+            noResultEl.textContent = 'Tidak ada Karu QC yang cocok';
+            dropdown.appendChild(noResultEl);
+        }
+        noResultEl.style.display = '';
+    } else if (noResultEl) {
+        noResultEl.style.display = 'none';
+    }
+
+    dropdown.classList.add('show');
+}
+
+function selectKaruQc(id, display) {
+    document.getElementById('karuQcSelect').value = id;
+    document.getElementById('karuQcSearchInput').value = display || '';
+    document.getElementById('karuQcDropdownList').classList.remove('show');
+}
+
+function resetKaruQcSearch() {
+    document.getElementById('karuQcSelect').value = '';
+    document.getElementById('karuQcSearchInput').value = '';
+    document.getElementById('karuQcDropdownList').classList.remove('show');
+    // Reset tampilan semua opsi
+    const dropdown = document.getElementById('karuQcDropdownList');
+    dropdown.querySelectorAll('.searchable-option').forEach(opt => opt.style.display = '');
+    const noResultEl = dropdown.querySelector('.searchable-no-result');
+    if (noResultEl) noResultEl.style.display = 'none';
+}
+
+// ============================================================
+// TAMBAHAN: Cetak sekarang membuka Modal Pilih Karu QC dulu
+// sebelum tab cetak dibuka. Pilihan Karu QC dikirim lewat
+// parameter GET "karu_qc", TIDAK disimpan ke database.
+// ============================================================
+function printSelected() {
+    const checked = document.querySelectorAll('.cetak-checkbox:checked');
+    if (checked.length === 0) {
+        alert('Pilih minimal 1 data (status Disetujui Pengawas) untuk dicetak!');
+        return;
+    }
+    // Reset pilihan & pencarian Karu QC setiap kali modal dibuka
+    resetKaruQcSearch();
+    document.getElementById('karuQcModal').classList.add('show');
+}
+
+function confirmPrintWithKaruQc() {
+    const checked = document.querySelectorAll('.cetak-checkbox:checked');
+    if (checked.length === 0) {
+        closeModal('karuQcModal');
+        return;
+    }
+    const ids = Array.from(checked).map(cb => cb.value);
+    const karuQcId = document.getElementById('karuQcSelect').value;
+
+    // Karu QC WAJIB dipilih sebelum bisa mencetak
+    if (!karuQcId) {
+        alert('Silakan pilih Karu QC terlebih dahulu sebelum mencetak!');
+        document.getElementById('karuQcSearchInput').focus();
+        return;
+    }
+
+    let url = 'print_sparepart.php?ids=' + ids.join(',') + '&karu_qc=' + encodeURIComponent(karuQcId);
+
+    closeModal('karuQcModal');
+    // Buka di tab baru agar halaman list tidak ter-reload
+    window.open(url, '_blank');
+}
 </script>
 
 </body>

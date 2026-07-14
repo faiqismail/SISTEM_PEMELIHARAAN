@@ -2,8 +2,9 @@
 // navbar.php
 // NAVBAR TIDAK BOLEH URUS SESSION / LOGIN / DATABASE
 
-$username = $_SESSION['username'] ?? 'User';
-$role     = $_SESSION['role'] ?? 'user';
+$nama_user  = $_SESSION['nama']    ?? ($_SESSION['username'] ?? 'User');
+$role_user  = $_SESSION['role']    ?? 'user';
+$jabatan_user = $_SESSION['jabatan'] ?? '-';
 
 // Deteksi halaman aktif
 $current_page = basename($_SERVER['PHP_SELF']);
@@ -110,6 +111,19 @@ $current_page = basename($_SERVER['PHP_SELF']);
         font-size: 12px;   /* ← px tetap */
         opacity: 0.85;
         color: #ecf0f1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-bottom: 2px;
+    }
+
+    .sidebar-header .user-jabatan {
+        font-size: 12px;   /* ← px tetap */
+        opacity: 0.75;
+        color: #ecf0f1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .nav-menu {
@@ -182,10 +196,17 @@ $current_page = basename($_SERVER['PHP_SELF']);
                 ?>
             </div>
             <div class="user-details">
+                <!-- 1. Nama -->
                 <div class="user-name"><?= htmlspecialchars($nama_user) ?></div>
-                <div class="user-role">
-                    <i class="fas fa-user-tag"></i>
-                    <?= ($role_user === 'pengawas') ? 'Pengawas' : ucfirst($role_user); ?>
+              <!-- 2. Akses (role) -->
+<div class="user-role">
+    <i class="fas fa-user-tag"></i>
+    <?= htmlspecialchars(($role_user === 'pengawas') ? 'UNIT' : ucfirst($role_user)); ?>
+</div>
+                <!-- 3. Jabatan -->
+                <div class="user-jabatan">
+                    <i class="fas fa-briefcase"></i>
+                    <?= htmlspecialchars($jabatan_user) ?>
                 </div>
             </div>
         </div>
@@ -200,7 +221,10 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <i class="fas fa-chart-line"></i>
             <span>Dashboard</span>
         </a>
-
+        <a href="dashboard_kendaraan.php" class="nav-item <?= ($current_page == 'dashboard_kendaraan.php') ? 'active' : '' ?>">
+            <i class="fas fa-chart-line"></i>
+            <span>Dashboard kendaraan</span>
+        </a>
         <a href="pengajuan_perbaikan.php" class="nav-item <?= ($current_page == 'pengajuan_perbaikan.php') ? 'active' : '' ?>">
             <i class="fas fa-tools"></i>
             <span>Pengajuan Perbaikan</span>

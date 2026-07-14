@@ -45,7 +45,7 @@ if (isset($_POST['approve_mulai'])) {
     if (empty($id_rekanan)) {
         echo "<script>
             alert('Harap pilih Rekanan terlebih dahulu!');
-            window.location.href='karu_qc_approval.php?id=$id_permintaan';
+            window.location.href='karu_approval.php?id=$id_permintaan';
         </script>";
         exit;
     }
@@ -70,7 +70,7 @@ if (isset($_POST['approve_mulai'])) {
     
     echo "<script>
         alert('Pekerjaan berhasil disetujui dan dimulai! TTD KARU QC telah disimpan.');
-        window.location.href='karu_qc_approval.php?id=$id_permintaan';
+        window.location.href='karu_approval.php?id=$id_permintaan';
     </script>";
     exit;
 }
@@ -81,6 +81,7 @@ if (isset($_POST['approve_mulai'])) {
 if (isset($_POST['selesai_kerja'])) {
     $tgl_selesai = date('Y-m-d H:i:s');
     $ttd_qc = mysqli_real_escape_string($connection, $user_ttd);
+    $admin_qc_id = intval($user_id);
     
     // Cek apakah sudah disetujui/dimulai
     $check = mysqli_fetch_assoc(mysqli_query($connection, "
@@ -92,13 +93,16 @@ if (isset($_POST['selesai_kerja'])) {
     if (empty($check['tgl_disetujui_karu_qc'])) {
         echo "<script>
             alert('Pekerjaan belum dimulai! Harap approve terlebih dahulu.');
-            window.location.href='karu_qc_approval.php?id=$id_permintaan';
+            window.location.href='karu_approval.php?id=$id_permintaan';
         </script>";
         exit;
     }
     
+    // admin_qc = akun yang benar-benar klik tombol "Selesai" ini
+    // (sebelumnya tidak dicatat, hanya ttd_qc & tgl_selesai yang tersimpan)
     mysqli_query($connection, "
         UPDATE permintaan_perbaikan SET
+            admin_qc = '$admin_qc_id',
             ttd_qc = '$ttd_qc',
             tgl_selesai = '$tgl_selesai',
             status = 'Selesai'
@@ -107,7 +111,7 @@ if (isset($_POST['selesai_kerja'])) {
     
     echo "<script>
         alert('Pekerjaan berhasil diselesaikan! TTD QC telah disimpan.');
-        window.location.href='karu_qc_approval.php?id=$id_permintaan';
+        window.location.href='karu_approval.php?id=$id_permintaan';
     </script>";
     exit;
 }
@@ -117,7 +121,7 @@ if (isset($_POST['selesai_kerja'])) {
 // ==========================
 $query_permintaan = "
     SELECT p.*, k.nopol, k.jenis_kendaraan, k.bidang,
-           u_sa.username AS sa_nama, u_sa.ttd AS sa_ttd,
+           u_sa.nama AS sa_nama, u_sa.jabatan AS sa_jabatan, u_sa.ttd AS sa_ttd,
            r.nama_rekanan, r.ttd_rekanan
     FROM permintaan_perbaikan p
     LEFT JOIN kendaraan k 
@@ -165,22 +169,33 @@ $result_rekanan = mysqli_query($connection,
 // ==========================
 // AMBIL DATA STATUS TRACKING
 // ==========================
+// CATATAN KOMPATIBILITAS DATA LAMA:
+// Kolom admin_qc baru ditambahkan (nullable). Untuk data lama yang admin_qc
+// masih NULL (belum pernah diisi sebelum patch ini), kita fallback pakai
+// admin_karu_qc supaya tampilan TIDAK error dan tetap menampilkan nama
+// seperti sebelumnya. Untuk data baru (setelah patch), admin_qc akan terisi
+// dengan akun yang benar-benar klik tombol "Selesai", sehingga nama QC dan
+// KARU QC bisa berbeda.
 $query_status = "
     SELECT 
         p.*,
-        u_driver.username AS driver_nama,
+        u_driver.nama AS driver_nama,
+        u_driver.jabatan AS driver_jabatan,
         u_driver.ttd AS driver_ttd,
-        u_sa.username AS sa_nama,
+        u_sa.nama AS sa_nama,
+        u_sa.jabatan AS sa_jabatan,
         u_sa.ttd AS sa_ttd,
-        u_karu.username AS karu_nama,
+        u_karu.nama AS karu_nama,
+        u_karu.jabatan AS karu_jabatan,
         u_karu.ttd AS karu_ttd_approve,
-        u_qc.username AS qc_nama,
+        u_qc.nama AS qc_nama,
+        u_qc.jabatan AS qc_jabatan,
         u_qc.ttd AS qc_ttd_selesai
     FROM permintaan_perbaikan p
     LEFT JOIN users u_driver ON p.id_pengaju = u_driver.id_user
     LEFT JOIN users u_sa ON p.admin_sa = u_sa.id_user
     LEFT JOIN users u_karu ON p.admin_karu_qc = u_karu.id_user
-    LEFT JOIN users u_qc ON p.admin_karu_qc = u_qc.id_user
+    LEFT JOIN users u_qc ON COALESCE(p.admin_qc, p.admin_karu_qc) = u_qc.id_user
     WHERE p.id_permintaan = '$id_permintaan'
     LIMIT 1
 ";
@@ -388,7 +403,7 @@ include "navbar.php";
 
         .status-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 15px;
             margin: 20px 0;
         }
@@ -436,6 +451,14 @@ include "navbar.php";
             font-weight: 600;
             margin: 8px 0;
             color: #1f2937;
+        }
+
+        .jabatan {
+            font-size: 12px;
+            font-weight: 400;
+            color: #6b7280;
+            margin: -4px 0 8px 0;
+            font-style: italic;
         }
 
         .time {
@@ -1037,6 +1060,11 @@ include "navbar.php";
                 word-wrap: break-word;
             }
 
+            .status-item .jabatan {
+                font-size: 9px !important;
+                margin: -3px 0 6px 0 !important;
+            }
+
             .status-item .time {
                 font-size: 9px !important;
                 line-height: 1.3;
@@ -1182,7 +1210,7 @@ include "navbar.php";
             }
 
             .status-grid {
-                grid-template-columns: repeat(4, 1fr) !important;
+                grid-template-columns: repeat(5, 1fr) !important;
                 gap: 8px !important;
             }
 
@@ -1458,12 +1486,12 @@ include "navbar.php";
                     </div>
                     <?php endif; ?>
 
-                    <!-- Catatan Pengawas -->
+                    <!-- Catatan Unit -->
                     <?php if (!empty($data_permintaan['catatan_pengawas'])): ?>
                     <div class="timeline-note" style="border-left: 4px solid #10b981;">
                         <div class="note-header">
                             <i class="fas fa-user-shield note-icon" style="color: #10b981;"></i>
-                            <strong class="note-title" style="color: #10b981;">Catatan Pengawas</strong>
+                            <strong class="note-title" style="color: #10b981;">Catatan Unit</strong>
                         </div>
                         <div class="note-content">
                             <?= nl2br(htmlspecialchars($data_permintaan['catatan_pengawas'])) ?>
@@ -1597,105 +1625,112 @@ include "navbar.php";
                 <div class="section-title">📊 Status Tracking</div>
                 <div class="status-grid">
 
-                    <!-- DRIVER -->
+                    <!-- UNIT -->
                     <div class="status-item">
-                        <div class="title">Pengawas</div>
+                        <div class="title">UNIT</div>
                         <?php if (!empty($data_status['tgl_pengajuan'])): ?>
                             <div class="status-badge status-selesai">✓ Diajukan</div>
                             <?php if (!empty($data_status['driver_ttd'])): ?>
                                 <div class="ttd-wrapper">
                                     <img src="../uploads/ttd/<?= htmlspecialchars($data_status['driver_ttd']) ?>"
-                                         alt="TTD Driver">
+                                         alt="TTD Unit">
                                 </div>
                             <?php endif; ?>
                             <div class="name"><?= htmlspecialchars($data_status['driver_nama']) ?></div>
+                            <?php if (!empty($data_status['driver_jabatan'])): ?>
+                                <div class="jabatan"><?= htmlspecialchars($data_status['driver_jabatan']) ?></div>
+                            <?php endif; ?>
                             <div class="time"><?= date('d/m/Y H:i', strtotime($data_status['tgl_pengajuan'])) ?></div>
                         <?php else: ?>
                             <div class="status-badge status-menunggu">⏳ Menunggu</div>
                         <?php endif; ?>
                     </div>
 
-                    <!-- SERVICE ADVISOR -->
+                    <!-- QC (Disetujui oleh Karu QC) -->
                     <div class="status-item">
-                        <div class="title">Service Advisor</div>
-                        <?php if (!empty($data_status['tgl_diperiksa_sa'])): ?>
+                        <div class="title">QC</div>
+                        <?php if (!empty($data_status['tgl_disetujui_karu_qc'])): ?>
                             <div class="status-badge status-selesai">✓ Diperiksa</div>
-                            <?php if (!empty($data_status['sa_ttd'])): ?>
+                            <?php if (!empty($data_status['ttd_karu_qc'])): ?>
                                 <div class="ttd-wrapper">
-                                    <img src="../uploads/ttd/<?= htmlspecialchars($data_status['sa_ttd']) ?>"
+                                    <img src="../uploads/ttd/<?= htmlspecialchars($data_status['ttd_karu_qc']) ?>"
                                          alt="TTD SA">
                                 </div>
                             <?php endif; ?>
+                            <div class="name"><?= htmlspecialchars($data_status['karu_nama']) ?></div>
+                            <?php if (!empty($data_status['karu_jabatan'])): ?>
+                                <div class="jabatan"><?= htmlspecialchars($data_status['karu_jabatan']) ?></div>
+                            <?php endif; ?>
+                            <div class="time"><?= date('d/m/Y H:i', strtotime($data_status['tgl_disetujui_karu_qc'])) ?></div>
+                        <?php else: ?>
+                            <div class="status-badge status-menunggu">⏳ Menunggu</div>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- SA (Diperiksa oleh Service Advisor) -->
+                    <div class="status-item">
+                        <div class="title">SA</div>
+                        <?php if (!empty($data_status['tgl_diperiksa_sa'])): ?>
+                            <div class="status-badge status-selesai">✓ Disetujui</div>
+                            <?php if (!empty($data_status['sa_ttd'])): ?>
+                                <div class="ttd-wrapper">
+                                    <img src="../uploads/ttd/<?= htmlspecialchars($data_status['sa_ttd']) ?>"
+                                         alt="TTD QC">
+                                </div>
+                            <?php endif; ?>
                             <div class="name"><?= htmlspecialchars($data_status['sa_nama']) ?></div>
+                            <?php if (!empty($data_status['sa_jabatan'])): ?>
+                                <div class="jabatan"><?= htmlspecialchars($data_status['sa_jabatan']) ?></div>
+                            <?php endif; ?>
                             <div class="time"><?= date('d/m/Y H:i', strtotime($data_status['tgl_diperiksa_sa'])) ?></div>
                         <?php else: ?>
                             <div class="status-badge status-menunggu">⏳ Menunggu</div>
                         <?php endif; ?>
                     </div>
 
-                    <!-- KARU QC -->
-                    <div class="status-item">
-                        <div class="title">KARU QC</div>
-                        
-                        <?php if (!empty($data_status['tgl_disetujui_karu_qc'])): ?>
-                            <div class="sub-status status-selesai">✓ Disetujui & Mulai</div>
-                            
-                            <?php if (!empty($data_status['ttd_karu_qc'])): ?>
-                                <div class="ttd-wrapper">
-                                    <img src="../uploads/ttd/<?= htmlspecialchars($data_status['ttd_karu_qc']) ?>"
-                                         alt="TTD KARU QC">
-                                </div>
-                            <?php endif; ?>
-                            
-                            <div class="name"><?= htmlspecialchars($data_status['karu_nama']) ?></div>
-                            <div class="time" style="margin-bottom: 15px;">
-                                <?= date('d/m/Y H:i', strtotime($data_status['tgl_disetujui_karu_qc'])) ?>
-                            </div>
-                        <?php else: ?>
-                            <div class="sub-status status-menunggu" style="margin-bottom: 15px;">⏳ Belum Dimulai</div>
-                        <?php endif; ?>
-
-                        <?php if (!empty($data_status['tgl_selesai'])): ?>
-                            <div class="sub-status status-selesai">✓ Selesai Dikerjakan</div>
-                            
-                            <?php if (!empty($data_status['ttd_qc'])): ?>
-                                <div class="ttd-wrapper">
-                                    <img src="../uploads/ttd/<?= htmlspecialchars($data_status['ttd_qc']) ?>"
-                                         alt="TTD QC">
-                                </div>
-                            <?php endif; ?>
-                            
-                            <div class="name"><?= htmlspecialchars($data_status['qc_nama']) ?></div>
-                            <div class="time"><?= date('d/m/Y H:i', strtotime($data_status['tgl_selesai'])) ?></div>
-                        <?php else: ?>
-                            <div class="sub-status status-menunggu">⏳ Belum Selesai</div>
-                        <?php endif; ?>
-                    </div>
-
                     <!-- REKANAN -->
                     <div class="status-item">
-                        <div class="title">Rekanan</div>
+                        <div class="title">REKANAN</div>
                         <?php if (!empty($data_status['tgl_selesai'])): ?>
-                            <div class="status-badge status-selesai">✓ Selesai</div>
-                            
+                            <div class="status-badge status-selesai">✓ Dikerjakan</div>
                             <?php if (!empty($data_permintaan['ttd_rekanan'])): ?>
                                 <div class="ttd-wrapper">
                                     <img src="../uploads/ttd_rekanan/<?= htmlspecialchars($data_permintaan['ttd_rekanan']) ?>"
                                          alt="TTD Rekanan">
                                 </div>
                             <?php endif; ?>
-                            
                             <?php if (!empty($data_permintaan['nama_rekanan'])): ?>
-                                <div class="name"><?= $data_permintaan['nama_rekanan'] ?></div>
+                                <div class="name"><?= htmlspecialchars($data_permintaan['nama_rekanan']) ?></div>
                             <?php endif; ?>
                             <div class="time"><?= date('d/m/Y H:i', strtotime($data_status['tgl_selesai'])) ?></div>
                         <?php else: ?>
                             <div class="status-badge status-menunggu">⏳ Menunggu</div>
                             <?php if (!empty($data_permintaan['nama_rekanan'])): ?>
                                 <div class="name" style="margin-top: 10px; font-size: 13px; color: #6b7280;">
-                                    (<?= $data_permintaan['nama_rekanan'] ?>)
+                                    (<?= htmlspecialchars($data_permintaan['nama_rekanan']) ?>)
                                 </div>
                             <?php endif; ?>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- KARU QC -->
+                    <div class="status-item">
+                        <div class="title">KARU QC</div>
+                        <?php if (!empty($data_status['tgl_selesai'])): ?>
+                            <div class="status-badge status-selesai">✓ Mengetahui</div>
+                            <?php if (!empty($data_status['ttd_qc'])): ?>
+                                <div class="ttd-wrapper">
+                                    <img src="../uploads/ttd/<?= htmlspecialchars($data_status['ttd_qc']) ?>"
+                                         alt="TTD KARU QC">
+                                </div>
+                            <?php endif; ?>
+                            <div class="name"><?= htmlspecialchars($data_status['qc_nama']) ?></div>
+                            <?php if (!empty($data_status['qc_jabatan'])): ?>
+                                <div class="jabatan"><?= htmlspecialchars($data_status['qc_jabatan']) ?></div>
+                            <?php endif; ?>
+                            <div class="time"><?= date('d/m/Y H:i', strtotime($data_status['tgl_selesai'])) ?></div>
+                        <?php else: ?>
+                            <div class="status-badge status-menunggu">⏳ Menunggu</div>
                         <?php endif; ?>
                     </div>
 

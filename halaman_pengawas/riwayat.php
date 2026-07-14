@@ -12,6 +12,16 @@ $nama_user = $user_info['username'];
 $role_user = $user_info['role'];
 
 // ═══════════════════════════════════════════════════════════
+// BIDANG USER — diambil dari SESSION hasil login (bukan input bebas)
+// Semua data pada halaman ini dikunci hanya untuk bidang milik user.
+// CATATAN: akses berbasis BIDANG, bukan id_pengaju. Riwayat ini hanya
+// menampilkan histori siapa yang mengajukan, tapi semua pengawas yang
+// berada di bidang yang sama harus bisa melihat SELURUH riwayat bidang.
+// ═══════════════════════════════════════════════════════════
+$bidang_user = $_SESSION['bidang'] ?? '';
+$bidang_esc  = mysqli_real_escape_string($connection, $bidang_user);
+
+// ═══════════════════════════════════════════════════════════
 // PAGINATION
 // ═══════════════════════════════════════════════════════════
 $per_page   = 25; // baris per halaman — ringan di browser
@@ -19,46 +29,49 @@ $page       = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $offset     = ($page - 1) * $per_page;
 
 // ═══════════════════════════════════════════════════════════
-// DROPDOWN FILTER — ambil sekali, cache di session ringan
+// DROPDOWN FILTER JENIS KENDARAAN — hanya dari bidang user
+// (dropdown bidang DIHAPUS karena sudah pasti satu bidang saja)
+// === AKSES BERBASIS BIDANG: BUKAN id_pengaju ===
 // ═══════════════════════════════════════════════════════════
-$bidang_list_q = mysqli_query($connection,
-    "SELECT DISTINCT k.bidang
-     FROM permintaan_perbaikan p
-     JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
-     WHERE p.id_pengaju='$id_user' AND p.status='Selesai'
-       AND k.bidang IS NOT NULL AND k.bidang != ''
-     ORDER BY k.bidang ASC");
-$bidang_list = [];
-while ($r = mysqli_fetch_assoc($bidang_list_q)) $bidang_list[] = $r['bidang'];
-
-$jenis_list_q = mysqli_query($connection,
-    "SELECT DISTINCT k.jenis_kendaraan
-     FROM permintaan_perbaikan p
-     JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
-     WHERE p.id_pengaju='$id_user' AND p.status='Selesai'
-       AND k.jenis_kendaraan IS NOT NULL AND k.jenis_kendaraan != ''
-     ORDER BY k.jenis_kendaraan ASC");
 $jenis_list = [];
-while ($r = mysqli_fetch_assoc($jenis_list_q)) $jenis_list[] = $r['jenis_kendaraan'];
+if ($bidang_user !== '') {
+    $jenis_list_q = mysqli_query($connection,
+        "SELECT DISTINCT k.jenis_kendaraan
+         FROM permintaan_perbaikan p
+         JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
+         WHERE p.status='Selesai'
+           AND k.bidang = '$bidang_esc'
+           AND k.jenis_kendaraan IS NOT NULL AND k.jenis_kendaraan != ''
+         ORDER BY k.jenis_kendaraan ASC");
+    while ($r = mysqli_fetch_assoc($jenis_list_q)) $jenis_list[] = $r['jenis_kendaraan'];
+}
 
 // ═══════════════════════════════════════════════════════════
 // FILTER TABEL
 // ═══════════════════════════════════════════════════════════
-$search_nopol   = isset($_GET['search_nopol'])   ? trim($_GET['search_nopol'])   : '';
-$search_tanggal = isset($_GET['search_tanggal']) ? trim($_GET['search_tanggal']) : '';
-$search_nomor   = isset($_GET['search_nomor'])   ? trim($_GET['search_nomor'])   : '';
-$search_bidang  = isset($_GET['search_bidang'])  ? trim($_GET['search_bidang'])  : '';
-$search_jenis   = isset($_GET['search_jenis'])   ? trim($_GET['search_jenis'])   : '';
+$search_nopol          = isset($_GET['search_nopol'])          ? trim($_GET['search_nopol'])          : '';
+$search_tanggal_dari   = isset($_GET['search_tanggal_dari'])   ? trim($_GET['search_tanggal_dari'])   : '';
+$search_tanggal_sampai = isset($_GET['search_tanggal_sampai']) ? trim($_GET['search_tanggal_sampai']) : '';
+$search_nomor          = isset($_GET['search_nomor'])          ? trim($_GET['search_nomor'])          : '';
+$search_jenis          = isset($_GET['search_jenis'])          ? trim($_GET['search_jenis'])           : '';
 
 // Bangun WHERE — pakai prepared-style escape
-$where = "WHERE p.id_pengaju = '$id_user' AND p.status = 'Selesai'";
-if ($search_nopol   !== '') $where .= " AND k.nopol LIKE '%".mysqli_real_escape_string($connection,$search_nopol)."%'";
-if ($search_tanggal !== '') $where .= " AND DATE(p.tgl_selesai) = '".mysqli_real_escape_string($connection,$search_tanggal)."'";
-if ($search_nomor   !== '') $where .= " AND p.nomor_pengajuan LIKE '%".mysqli_real_escape_string($connection,$search_nomor)."%'";
-if ($search_bidang  !== '') $where .= " AND k.bidang = '".mysqli_real_escape_string($connection,$search_bidang)."'";
-if ($search_jenis   !== '') $where .= " AND k.jenis_kendaraan = '".mysqli_real_escape_string($connection,$search_jenis)."'";
+// === AKSES BERBASIS BIDANG: dikunci ke bidang user (session), BUKAN id_pengaju ===
+// Semua pengawas di bidang yang sama bisa melihat seluruh riwayat bidang ini,
+// siapa pun yang mengajukan (id_pengaju hanya dipakai sebagai jejak histori).
+$where = "WHERE p.status = 'Selesai'";
+if ($bidang_user !== '') {
+    $where .= " AND k.bidang = '$bidang_esc'";
+} else {
+    $where .= " AND 1 = 0"; // fail-safe: bidang belum diset -> tidak tampilkan data
+}
+if ($search_nopol          !== '') $where .= " AND k.nopol LIKE '%".mysqli_real_escape_string($connection,$search_nopol)."%'";
+if ($search_tanggal_dari   !== '') $where .= " AND DATE(p.tgl_selesai) >= '".mysqli_real_escape_string($connection,$search_tanggal_dari)."'";
+if ($search_tanggal_sampai !== '') $where .= " AND DATE(p.tgl_selesai) <= '".mysqli_real_escape_string($connection,$search_tanggal_sampai)."'";
+if ($search_nomor          !== '') $where .= " AND p.nomor_pengajuan LIKE '%".mysqli_real_escape_string($connection,$search_nomor)."%'";
+if ($search_jenis          !== '') $where .= " AND k.jenis_kendaraan = '".mysqli_real_escape_string($connection,$search_jenis)."'";
 
-$ada_filter = $search_nopol||$search_tanggal||$search_nomor||$search_bidang||$search_jenis;
+$ada_filter = $search_nopol||$search_tanggal_dari||$search_tanggal_sampai||$search_nomor||$search_jenis;
 
 // ═══════════════════════════════════════════════════════════
 // HITUNG TOTAL ROWS — untuk pagination (query ringan, no SELECT *)
@@ -78,13 +91,18 @@ if ($page > $total_pages) $page = $total_pages;
 $tahun_sekarang = (int)date('Y');
 $filter_tahun   = isset($_GET['filter_tahun']) ? (int)$_GET['filter_tahun'] : $tahun_sekarang;
 
-$tahun_list_q = mysqli_query($connection,
-    "SELECT DISTINCT YEAR(tgl_pengajuan) AS thn
-     FROM permintaan_perbaikan
-     WHERE id_pengaju='$id_user' AND status='Selesai'
-     ORDER BY thn DESC");
 $tahun_list = [];
-while ($r = mysqli_fetch_assoc($tahun_list_q)) $tahun_list[] = (int)$r['thn'];
+if ($bidang_user !== '') {
+    // === AKSES BERBASIS BIDANG: BUKAN id_pengaju ===
+    $tahun_list_q = mysqli_query($connection,
+        "SELECT DISTINCT YEAR(p.tgl_pengajuan) AS thn
+         FROM permintaan_perbaikan p
+         JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
+         WHERE p.status='Selesai'
+           AND k.bidang='$bidang_esc'
+         ORDER BY thn DESC");
+    while ($r = mysqli_fetch_assoc($tahun_list_q)) $tahun_list[] = (int)$r['thn'];
+}
 if (empty($tahun_list)) $tahun_list = [$tahun_sekarang];
 
 $bulan_ini       = (int)date('n');
@@ -92,21 +110,27 @@ $bulan_lalu      = $bulan_ini == 1 ? 12 : $bulan_ini - 1;
 $tahun_lalu      = $filter_tahun - 1;
 
 // ═══════════════════════════════════════════════════════════
-// 4 CARD QUERIES — semua dibatasi YEAR(), sangat cepat
+// 4 CARD QUERIES — semua dibatasi YEAR() dan bidang user, sangat cepat
+// === AKSES BERBASIS BIDANG: BUKAN id_pengaju ===
 // ═══════════════════════════════════════════════════════════
-// Satu query GROUP BY bulan sekaligus — lebih efisien dari 4 query terpisah
-$card_q = mysqli_fetch_assoc(mysqli_query($connection,
-    "SELECT
-        SUM(CASE WHEN YEAR(tgl_pengajuan)='$filter_tahun' THEN 1 ELSE 0 END)                            AS total_thn,
-        SUM(CASE WHEN YEAR(tgl_pengajuan)='$tahun_lalu'   THEN 1 ELSE 0 END)                            AS total_thn_lalu,
-        SUM(CASE WHEN YEAR(tgl_pengajuan)='$filter_tahun' AND MONTH(tgl_pengajuan)='$bulan_ini'  THEN 1 ELSE 0 END) AS total_bln_ini,
-        SUM(CASE WHEN YEAR(tgl_pengajuan)='$filter_tahun' AND MONTH(tgl_pengajuan)='$bulan_lalu' THEN 1 ELSE 0 END) AS total_bln_lalu,
-        SUM(CASE WHEN YEAR(tgl_pengajuan)='$filter_tahun' THEN grand_total ELSE 0 END)                  AS total_biaya,
-        AVG(CASE WHEN YEAR(tgl_pengajuan)='$filter_tahun' THEN grand_total ELSE NULL END)                AS avg_biaya,
-        SUM(CASE WHEN YEAR(tgl_pengajuan)='$filter_tahun' THEN 1 ELSE 0 END)                            AS jumlah_unit
-     FROM permintaan_perbaikan
-     WHERE id_pengaju='$id_user' AND status='Selesai'
-       AND YEAR(tgl_pengajuan) IN ('$filter_tahun','$tahun_lalu')"));
+if ($bidang_user !== '') {
+    $card_q = mysqli_fetch_assoc(mysqli_query($connection,
+        "SELECT
+            SUM(CASE WHEN YEAR(p.tgl_pengajuan)='$filter_tahun' THEN 1 ELSE 0 END)                            AS total_thn,
+            SUM(CASE WHEN YEAR(p.tgl_pengajuan)='$tahun_lalu'   THEN 1 ELSE 0 END)                            AS total_thn_lalu,
+            SUM(CASE WHEN YEAR(p.tgl_pengajuan)='$filter_tahun' AND MONTH(p.tgl_pengajuan)='$bulan_ini'  THEN 1 ELSE 0 END) AS total_bln_ini,
+            SUM(CASE WHEN YEAR(p.tgl_pengajuan)='$filter_tahun' AND MONTH(p.tgl_pengajuan)='$bulan_lalu' THEN 1 ELSE 0 END) AS total_bln_lalu,
+            SUM(CASE WHEN YEAR(p.tgl_pengajuan)='$filter_tahun' THEN p.grand_total ELSE 0 END)                  AS total_biaya,
+            AVG(CASE WHEN YEAR(p.tgl_pengajuan)='$filter_tahun' THEN p.grand_total ELSE NULL END)                AS avg_biaya,
+            SUM(CASE WHEN YEAR(p.tgl_pengajuan)='$filter_tahun' THEN 1 ELSE 0 END)                            AS jumlah_unit
+         FROM permintaan_perbaikan p
+         JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
+         WHERE p.status='Selesai'
+           AND k.bidang='$bidang_esc'
+           AND YEAR(p.tgl_pengajuan) IN ('$filter_tahun','$tahun_lalu')"));
+} else {
+    $card_q = [];
+}
 
 $total_tahun      = (int)($card_q['total_thn']      ?? 0);
 $total_tahun_lalu = (int)($card_q['total_thn_lalu'] ?? 0);
@@ -202,6 +226,7 @@ $nama_bulan = ['','Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','N
         .filter-bar select { padding: 7px 32px 7px 12px; border: 2px solid #d5e8d4; border-radius: 8px; font-size: .88em; font-weight: 600; color: #2c3e50; background: white url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2395a5a6'/%3E%3C/svg%3E") no-repeat right 10px center; appearance: none; cursor: pointer; }
         .filter-bar select:focus { outline: none; border-color: #27ae60; }
         .filter-bar .filter-hint { font-size: .75em; color: #95a5a6; }
+        .filter-bar .bidang-lock { margin-left:auto; font-size:.8em; font-weight:700; color:#0d3d1f; background:#d5e8d4; padding:5px 12px; border-radius:20px; display:inline-flex; align-items:center; gap:6px; }
 
         /* Stat Cards */
         .stats-container { padding: 14px 30px 16px; display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; }
@@ -295,9 +320,11 @@ $nama_bulan = ['','Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','N
         .empty-state i { font-size: 3.5em; margin-bottom: 16px; opacity: .5; }
         .loading { display: none; text-align: center; padding: 20px; color: #7f8c8d; }
 
+        @media (max-width: 1200px) {
+            .search-box { grid-template-columns: repeat(3,1fr); }
+        }
         @media (max-width: 1100px) {
             .stats-container { grid-template-columns: repeat(2,1fr); }
-            .search-box { grid-template-columns: repeat(3,1fr); }
         }
         @media (max-width: 768px) {
             .mobile-toggle { display: block; }
@@ -339,6 +366,11 @@ $nama_bulan = ['','Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','N
             <?php endforeach; ?>
         </select>
         <span class="filter-hint">* hanya mempengaruhi 4 kartu di atas</span>
+        <?php if ($bidang_user !== ''): ?>
+        <span class="bidang-lock"><i class="fas fa-building"></i> Bidang: <?= htmlspecialchars($bidang_user) ?></span>
+        <?php else: ?>
+        <span class="bidang-lock" style="background:#fdedec;color:#c0392b;"><i class="fas fa-triangle-exclamation"></i> Bidang belum diset</span>
+        <?php endif; ?>
     </div>
 
     <!-- 4 Stat Cards -->
@@ -429,7 +461,14 @@ $nama_bulan = ['','Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','N
             </div>
             <div class="card-body">
 
-                <!-- Filter -->
+                <?php if ($bidang_user === ''): ?>
+                <div style="background:#fdedec;border:1px solid #f5b7b1;color:#c0392b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:.85em;">
+                    <i class="fas fa-circle-exclamation"></i>
+                    Akun Anda belum memiliki bidang yang terdaftar, sehingga data riwayat perbaikan tidak dapat ditampilkan. Silakan hubungi administrator.
+                </div>
+                <?php endif; ?>
+
+                <!-- Filter (bidang DIHAPUS, sudah otomatis terkunci sesuai bidang user) -->
                 <div class="search-box">
                     <div class="form-group">
                         <label><i class="fas fa-hashtag"></i> No. Pengajuan</label>
@@ -440,17 +479,12 @@ $nama_bulan = ['','Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','N
                         <input type="text" id="s_nopol" class="form-control" placeholder="Cari Nomor Asset..." value="<?=htmlspecialchars($search_nopol)?>">
                     </div>
                     <div class="form-group">
-                        <label><i class="fas fa-calendar-check" style="color:#27ae60;"></i> Tanggal Selesai</label>
-                        <input type="date" id="s_tanggal" class="form-control" value="<?=htmlspecialchars($search_tanggal)?>">
+                        <label><i class="fas fa-calendar-check" style="color:#27ae60;"></i> Selesai Dari</label>
+                        <input type="date" id="s_tanggal_dari" class="form-control" value="<?=htmlspecialchars($search_tanggal_dari)?>">
                     </div>
                     <div class="form-group">
-                        <label><i class="fas fa-building"></i> Bidang</label>
-                        <select id="s_bidang" class="form-control">
-                            <option value="">-- Semua Bidang --</option>
-                            <?php foreach($bidang_list as $b):?>
-                            <option value="<?=htmlspecialchars($b)?>" <?=$search_bidang==$b?'selected':''?>><?=htmlspecialchars($b)?></option>
-                            <?php endforeach;?>
-                        </select>
+                        <label><i class="fas fa-calendar-check" style="color:#27ae60;"></i> Selesai Sampai</label>
+                        <input type="date" id="s_tanggal_sampai" class="form-control" value="<?=htmlspecialchars($search_tanggal_sampai)?>">
                     </div>
                     <div class="form-group">
                         <label><i class="fas fa-truck"></i> Jenis Kendaraan</label>
@@ -472,8 +506,13 @@ $nama_bulan = ['','Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','N
                     <span style="font-size:.76em;color:#7f8c8d;font-weight:600;">Filter aktif:</span>
                     <?php if($search_nomor):?><span class="filter-tag">No: <strong><?=htmlspecialchars($search_nomor)?></strong> <span class="rm" onclick="hapusFilter('search_nomor')">✕</span></span><?php endif;?>
                     <?php if($search_nopol):?><span class="filter-tag">Asset: <strong><?=htmlspecialchars($search_nopol)?></strong> <span class="rm" onclick="hapusFilter('search_nopol')">✕</span></span><?php endif;?>
-                    <?php if($search_tanggal):?><span class="filter-tag"><i class="fas fa-calendar-check" style="color:#27ae60;"></i> <?=htmlspecialchars($search_tanggal)?> <span class="rm" onclick="hapusFilter('search_tanggal')">✕</span></span><?php endif;?>
-                    <?php if($search_bidang):?><span class="filter-tag">Bidang: <strong><?=htmlspecialchars($search_bidang)?></strong> <span class="rm" onclick="hapusFilter('search_bidang')">✕</span></span><?php endif;?>
+                    <?php if($search_tanggal_dari || $search_tanggal_sampai):?>
+                    <span class="filter-tag">
+                        <i class="fas fa-calendar-check" style="color:#27ae60;"></i>
+                        <?= $search_tanggal_dari ? htmlspecialchars($search_tanggal_dari) : '...' ?> s/d <?= $search_tanggal_sampai ? htmlspecialchars($search_tanggal_sampai) : '...' ?>
+                        <span class="rm" onclick="hapusFilter(['search_tanggal_dari','search_tanggal_sampai'])">✕</span>
+                    </span>
+                    <?php endif;?>
                     <?php if($search_jenis):?><span class="filter-tag">Jenis: <strong><?=htmlspecialchars($search_jenis)?></strong> <span class="rm" onclick="hapusFilter('search_jenis')">✕</span></span><?php endif;?>
                 </div>
                 <?php endif;?>
@@ -515,9 +554,9 @@ $nama_bulan = ['','Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','N
                             <td>
                                 <div style="display:flex;flex-direction:column;gap:5px;">
                                     <div class="timeline-step"><i class="fas fa-check-circle"></i><div class="step-content"><strong>Diajukan</strong><small><?=tglFmt($d['tgl_pengajuan'])?></small></div></div>
-                                    <div class="timeline-step"><i class="fas fa-check-circle"></i><div class="step-content"><strong>Diperiksa SA</strong><small><?=tglFmt($d['tgl_diperiksa_sa'])?></small></div></div>
-                                    <div class="timeline-step"><i class="fas fa-check-circle"></i><div class="step-content"><strong>Disetujui KARU QC</strong><small><?=tglFmt($d['tgl_disetujui_karu_qc'])?></small></div></div>
-                                    <div class="timeline-step"><i class="fas fa-check-circle"></i><div class="step-content"><strong style="color:#27ae60;">Selesai</strong><small><?=tglFmt($d['tgl_selesai'])?></small></div></div>
+                                    <div class="timeline-step"><i class="fas fa-check-circle"></i><div class="step-content"><strong>Disetujui SA</strong><small><?=tglFmt($d['tgl_diperiksa_sa'])?></small></div></div>
+                                    <div class="timeline-step"><i class="fas fa-check-circle"></i><div class="step-content"><strong>Diperiksa QC</strong><small><?=tglFmt($d['tgl_disetujui_karu_qc'])?></small></div></div>
+                                    <div class="timeline-step"><i class="fas fa-check-circle"></i><div class="step-content"><strong style="color:#27ae60;">Mengetahui Selesai</strong><small><?=tglFmt($d['tgl_selesai'])?></small></div></div>
                                 </div>
                             </td>
                             <td><span class="durasi-badge"><i class="fas fa-clock"></i> <?=$durasi?></span></td>
@@ -525,7 +564,7 @@ $nama_bulan = ['','Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','N
                             <td>
                                 <div class="biaya-info">
                                     <div><strong>Jasa:</strong> Rp <?=number_format($d['total_perbaikan'],0,',','.')?></div>
-                                    <div><strong>Suku cadang:</strong> Rp <?=number_format($d['total_sparepart'],0,',','.')?></div>
+                                    <div><strong>Sparepart:</strong> Rp <?=number_format($d['total_sparepart'],0,',','.')?></div>
                                     <div class="biaya-total"><strong>Total:</strong> <span class="amount">Rp <?=number_format($d['grand_total'],0,',','.')?></span></div>
                                 </div>
                             </td>
@@ -595,15 +634,15 @@ function gantiTahun(thn) {
     p.delete('page'); // reset ke hal 1
     window.location.href = '?' + p.toString();
 }
-function hapusFilter(key) {
+function hapusFilter(keys) {
     const p = new URLSearchParams(window.location.search);
-    p.delete(key);
+    (Array.isArray(keys) ? keys : [keys]).forEach(k => p.delete(k));
     p.delete('page');
     window.location.href = '?' + p.toString();
 }
 function resetFilter() {
     const p = new URLSearchParams(window.location.search);
-    ['search_nomor','search_nopol','search_tanggal','search_bidang','search_jenis'].forEach(k=>p.delete(k));
+    ['search_nomor','search_nopol','search_tanggal_dari','search_tanggal_sampai','search_jenis'].forEach(k=>p.delete(k));
     p.delete('page');
     window.location.href = '?' + p.toString();
 }
@@ -615,11 +654,11 @@ function doSearch() {
     st = setTimeout(() => {
         const p = new URLSearchParams(window.location.search);
         const fields = {
-            search_nomor:   document.getElementById('s_nomor').value,
-            search_nopol:   document.getElementById('s_nopol').value,
-            search_tanggal: document.getElementById('s_tanggal').value,
-            search_bidang:  document.getElementById('s_bidang').value,
-            search_jenis:   document.getElementById('s_jenis').value,
+            search_nomor:          document.getElementById('s_nomor').value,
+            search_nopol:          document.getElementById('s_nopol').value,
+            search_tanggal_dari:   document.getElementById('s_tanggal_dari').value,
+            search_tanggal_sampai: document.getElementById('s_tanggal_sampai').value,
+            search_jenis:          document.getElementById('s_jenis').value,
         };
         for (const [k,v] of Object.entries(fields)) v ? p.set(k,v) : p.delete(k);
         p.delete('page'); // kembali ke hal 1
@@ -628,7 +667,7 @@ function doSearch() {
     }, 700);
 }
 ['s_nomor','s_nopol'].forEach(id=>document.getElementById(id).addEventListener('input',doSearch));
-['s_tanggal','s_bidang','s_jenis'].forEach(id=>document.getElementById(id).addEventListener('change',doSearch));
+['s_tanggal_dari','s_tanggal_sampai','s_jenis'].forEach(id=>document.getElementById(id).addEventListener('change',doSearch));
 
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('active'); }
 document.addEventListener('click', function(e) {

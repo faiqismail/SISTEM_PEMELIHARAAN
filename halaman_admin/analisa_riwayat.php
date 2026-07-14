@@ -10,6 +10,11 @@ $period_type = isset($_GET['period']) ? $_GET['period'] : 'bulan';
 $search_query = isset($_GET['search']) ? $_GET['search'] : '';
 $selected_bidang = isset($_GET['bidang']) ? $_GET['bidang'] : ''; // NEW: Filter bidang
 
+// NEW: Pagination untuk tabel tampilan (tidak berlaku untuk export)
+$current_page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$limit = 50;
+$offset = ($current_page - 1) * $limit;
+
 // Get list bidang dari tabel kendaraan
 $query_bidang = "SELECT DISTINCT bidang FROM kendaraan WHERE bidang IS NOT NULL AND bidang != '' ORDER BY bidang";
 $result_bidang = mysqli_query($connection, $query_bidang);
@@ -44,6 +49,8 @@ if (!empty($selected_bidang)) {
     $bidang_condition = " AND k.bidang = '$selected_bidang_escaped'";
 }
 
+// CATATAN: Query export SENGAJA TIDAK diberi LIMIT/OFFSET
+// agar SEMUA data hasil filter tetap ter-export secara utuh.
 if ($view_type == 'sparepart') {
     if ($period_type == 'tahun') {
         $sql = "SELECT 
@@ -363,8 +370,14 @@ if ($period_type == 'tahun') {
     GROUP BY mj.id_jasa
     ORDER BY total_qty DESC";
 }
-$result_sparepart = mysqli_query($connection, $sql_sparepart);
-$result_jasa = mysqli_query($connection, $sql_jasa);
+
+// NEW: $sql_sparepart dan $sql_jasa (tanpa LIMIT) tetap dipakai untuk
+// menghitung TOTAL & jumlah baris keseluruhan (agar statistik akurat,
+// tidak hanya berdasarkan 50 data yang tampil).
+// Sedangkan $result_sparepart / $result_jasa untuk TAMPILAN TABEL
+// diberi LIMIT/OFFSET agar tidak membebani server.
+$result_sparepart = mysqli_query($connection, $sql_sparepart . " LIMIT $limit OFFSET $offset");
+$result_jasa = mysqli_query($connection, $sql_jasa . " LIMIT $limit OFFSET $offset");
 
 function getChartDataQty($connection, $id, $type, $period_type, $current_month, $current_year, $selected_bidang = '') {
     $data = array();
@@ -514,21 +527,29 @@ function getOverallChartData($connection, $type, $period_type, $current_month, $
 // Get overall chart data dengan filter bidang
 $overall_chart_data = getOverallChartData($connection, $view_type, $period_type, $current_month, $current_year, $selected_bidang);
 
-// Hitung total keseluruhan
+// Hitung total keseluruhan (berdasarkan SELURUH data hasil filter, bukan hanya 50 yang tampil)
 $total_sparepart = 0;
 $total_jasa = 0;
 
 $temp_result_sparepart = mysqli_query($connection, $sql_sparepart);
+$total_rows_sparepart = mysqli_num_rows($temp_result_sparepart); // NEW: jumlah baris untuk pagination
 while ($row = mysqli_fetch_assoc($temp_result_sparepart)) {
     $total_sparepart += $row['total_biaya'];
 }
 
 $temp_result_jasa = mysqli_query($connection, $sql_jasa);
+$total_rows_jasa = mysqli_num_rows($temp_result_jasa); // NEW: jumlah baris untuk pagination
 while ($row = mysqli_fetch_assoc($temp_result_jasa)) {
     $total_jasa += $row['total_biaya'];
 }
 
 $grand_total = $total_sparepart + $total_jasa;
+
+// NEW: Hitung total halaman berdasarkan view yang sedang aktif
+$total_pages_sparepart = max(1, (int)ceil($total_rows_sparepart / $limit));
+$total_pages_jasa = max(1, (int)ceil($total_rows_jasa / $limit));
+$total_pages = $view_type == 'sparepart' ? $total_pages_sparepart : $total_pages_jasa;
+$total_rows_active = $view_type == 'sparepart' ? $total_rows_sparepart : $total_rows_jasa;
 
 $bulan_array = [
     '01' => 'Januari', '02' => 'Februari', '03' => 'Maret',
@@ -1020,6 +1041,27 @@ $bulan_array = [
             position: relative;
         }
 
+        /* NEW: Style pagination */
+        .pagination-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 12px;
+            padding: 20px;
+            flex-wrap: wrap;
+        }
+
+        .pagination-wrapper .btn {
+            width: auto;
+            padding: 8px 16px;
+        }
+
+        .pagination-info {
+            font-size: 14px;
+            color: #475569;
+            font-weight: 600;
+        }
+
         @keyframes fadeIn {
             from { opacity: 0; }
             to { opacity: 1; }
@@ -1228,7 +1270,7 @@ $bulan_array = [
                             </thead>
                             <tbody>
                                 <?php 
-                                $no = 1;
+                                $no = $offset + 1; // NEW: nomor urut mengikuti halaman aktif
                                 $subtotal = 0;
                                 while ($row = mysqli_fetch_assoc($result_sparepart)): 
                                     $subtotal += $row['total_biaya'];
@@ -1268,14 +1310,36 @@ $bulan_array = [
                             <tfoot>
                                 <tr class="total-row">
                                     <td colspan="7" class="text-right">
-                                        <i class="fas fa-calculator"></i> TOTAL KESELURUHAN:
+                                        <i class="fas fa-calculator"></i> TOTAL KESELURUHAN (SEMUA DATA):
                                         <strong>Rp <?= number_format($subtotal, 0, ',', '.') ?></strong>
+                                        (halaman ini)
                                     </td>
                                     <td></td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
+
+                    <!-- NEW: Kontrol pagination -->
+                    <?php if ($total_pages_sparepart > 1): ?>
+                    <div class="pagination-wrapper">
+                        <?php if ($current_page > 1): ?>
+                            <button class="btn btn-secondary" onclick="goToPage(<?= $current_page - 1 ?>)">
+                                <i class="fas fa-chevron-left"></i> Sebelumnya
+                            </button>
+                        <?php endif; ?>
+                        <span class="pagination-info">
+                            Halaman <?= $current_page ?> dari <?= $total_pages_sparepart ?>
+                            (Total <?= $total_rows_sparepart ?> data)
+                        </span>
+                        <?php if ($current_page < $total_pages_sparepart): ?>
+                            <button class="btn btn-secondary" onclick="goToPage(<?= $current_page + 1 ?>)">
+                                Selanjutnya <i class="fas fa-chevron-right"></i>
+                            </button>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+
                 <?php else: ?>
                     <div class="no-data">
                         <i class="fas fa-inbox"></i>
@@ -1306,7 +1370,7 @@ $bulan_array = [
                             </thead>
                             <tbody>
                                 <?php 
-                                $no = 1;
+                                $no = $offset + 1; // NEW: nomor urut mengikuti halaman aktif
                                 $subtotal = 0;
                                 while ($row = mysqli_fetch_assoc($result_jasa)): 
                                     $subtotal += $row['total_biaya'];
@@ -1346,14 +1410,36 @@ $bulan_array = [
                             <tfoot>
                                 <tr class="total-row">
                                     <td colspan="7" class="text-right">
-                                        <i class="fas fa-calculator"></i> TOTAL KESELURUHAN:
+                                        <i class="fas fa-calculator"></i> TOTAL KESELURUHAN (SEMUA DATA):
                                         <strong>Rp <?= number_format($subtotal, 0, ',', '.') ?></strong>
+                                        (halaman ini)
                                     </td>
                                     <td></td>
                                 </tr>
                             </tfoot>
                         </table>
                     </div>
+
+                    <!-- NEW: Kontrol pagination -->
+                    <?php if ($total_pages_jasa > 1): ?>
+                    <div class="pagination-wrapper">
+                        <?php if ($current_page > 1): ?>
+                            <button class="btn btn-secondary" onclick="goToPage(<?= $current_page - 1 ?>)">
+                                <i class="fas fa-chevron-left"></i> Sebelumnya
+                            </button>
+                        <?php endif; ?>
+                        <span class="pagination-info">
+                            Halaman <?= $current_page ?> dari <?= $total_pages_jasa ?>
+                            (Total <?= $total_rows_jasa ?> data)
+                        </span>
+                        <?php if ($current_page < $total_pages_jasa): ?>
+                            <button class="btn btn-secondary" onclick="goToPage(<?= $current_page + 1 ?>)">
+                                Selanjutnya <i class="fas fa-chevron-right"></i>
+                            </button>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
+
                 <?php else: ?>
                     <div class="no-data">
                         <i class="fas fa-inbox"></i>
@@ -1388,6 +1474,12 @@ $bulan_array = [
         const searchQuery = '<?= addslashes($search_query) ?>';
         const selectedBidang = '<?= addslashes($selected_bidang) ?>';
 
+        const armadaTab = new URLSearchParams(window.location.search).get('armada_tab');
+function withTab(url) {
+    if (!armadaTab) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return url + sep + 'armada_tab=' + encodeURIComponent(armadaTab);
+}
         function exportExcel(type) {
             const period = document.getElementById('periodType').value;
             const bulan = document.getElementById('bulanSelect').value;
@@ -1407,8 +1499,7 @@ $bulan_array = [
                 url += `&bidang=${encodeURIComponent(bidang)}`;
             }
             
-            window.location.href = url;
-        }
+window.location.href = withTab(url);        }
 
         function changeView(type) {
             const period = document.getElementById('periodType').value;
@@ -1417,7 +1508,8 @@ $bulan_array = [
             const search = document.getElementById('searchInput').value;
             const bidang = document.getElementById('bidangSelect').value;
             
-            let url = `?view=${type}&period=${period}&tahun=${tahun}`;
+            // NEW: reset ke halaman 1 setiap ganti tampilan (sparepart/jasa)
+            let url = `?view=${type}&period=${period}&tahun=${tahun}&page=1`;
             if (period === 'bulan') {
                 url += `&bulan=${bulan}`;
             }
@@ -1451,7 +1543,8 @@ $bulan_array = [
             const search = document.getElementById('searchInput').value;
             const bidang = document.getElementById('bidangSelect').value;
             
-            let url = `?view=${viewType}&period=${period}&tahun=${tahun}`;
+            // NEW: reset ke halaman 1 setiap ganti filter
+            let url = `?view=${viewType}&period=${period}&tahun=${tahun}&page=1`;
             if (period === 'bulan') {
                 url += `&bulan=${bulan}`;
             }
@@ -1462,6 +1555,28 @@ $bulan_array = [
                 url += `&bidang=${encodeURIComponent(bidang)}`;
             }
             
+            window.location.href = url;
+        }
+
+        // NEW: Fungsi untuk pindah halaman pagination (mempertahankan filter aktif)
+        function goToPage(page) {
+            const period = document.getElementById('periodType').value;
+            const bulan = document.getElementById('bulanSelect').value;
+            const tahun = document.getElementById('tahunSelect').value;
+            const search = document.getElementById('searchInput').value;
+            const bidang = document.getElementById('bidangSelect').value;
+
+            let url = `?view=${viewType}&period=${period}&tahun=${tahun}&page=${page}`;
+            if (period === 'bulan') {
+                url += `&bulan=${bulan}`;
+            }
+            if (search) {
+                url += `&search=${encodeURIComponent(search)}`;
+            }
+            if (bidang) {
+                url += `&bidang=${encodeURIComponent(bidang)}`;
+            }
+
             window.location.href = url;
         }
 

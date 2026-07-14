@@ -4,35 +4,32 @@ requireAuth('pengawas');
 $id_permintaan = isset($_GET['id']) ? intval($_GET['id']) : 0;
 $jenis = isset($_GET['jenis']) ? $_GET['jenis'] : 'all'; // all, jasa, sparepart
 
-
-// ==========================
-// AMBIL ID PERMINTAAN
-// ==========================
-$id_permintaan = isset($_GET['id']) ? intval($_GET['id']) : 0;
-
 // ==========================
 // CEK ID PERMINTAAN
 // ==========================
 if ($id_permintaan <= 0) {
     die("❌ ID Permintaan tidak valid atau tidak ditemukan");
 }
-// Query data permintaan dengan semua relasi
+
+// ==========================
+// QUERY DATA PERMINTAAN + RELASI (termasuk nama & jabatan)
+// ==========================
 $query = "
     SELECT 
         p.*,
         k.nopol, k.jenis_kendaraan, k.bidang,
         r.nama_rekanan, r.ttd_rekanan,
-        u_driver.username AS driver_nama, u_driver.ttd AS driver_ttd,
-        u_sa.username AS sa_nama, u_sa.ttd AS sa_ttd,
-        u_karu.username AS karu_nama, u_karu.ttd AS karu_ttd,
-        u_qc.username AS qc_nama, u_qc.ttd AS qc_ttd
+        COALESCE(u_driver.nama, u_driver.username) AS driver_nama, u_driver.ttd AS driver_ttd, u_driver.jabatan AS driver_jabatan,
+        COALESCE(u_sa.nama, u_sa.username)         AS sa_nama,     u_sa.ttd     AS sa_ttd,     u_sa.jabatan     AS sa_jabatan,
+        COALESCE(u_karu.nama, u_karu.username)     AS karu_nama,   u_karu.ttd   AS karu_ttd,   u_karu.jabatan   AS karu_jabatan,
+        COALESCE(u_qc.nama, u_qc.username)         AS qc_nama,     u_qc.ttd     AS qc_ttd,     u_qc.jabatan     AS qc_jabatan
     FROM permintaan_perbaikan p
-    LEFT JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
-    LEFT JOIN rekanan r ON p.id_rekanan = r.id_rekanan
+    LEFT JOIN kendaraan k   ON p.id_kendaraan = k.id_kendaraan
+    LEFT JOIN rekanan r     ON p.id_rekanan = r.id_rekanan
     LEFT JOIN users u_driver ON p.id_pengaju = u_driver.id_user
-    LEFT JOIN users u_sa ON p.admin_sa = u_sa.id_user
-    LEFT JOIN users u_karu ON p.admin_karu_qc = u_karu.id_user
-    LEFT JOIN users u_qc ON p.admin_karu_qc = u_qc.id_user
+    LEFT JOIN users u_sa     ON p.admin_sa = u_sa.id_user
+    LEFT JOIN users u_karu   ON p.admin_qc = u_karu.id_user
+    LEFT JOIN users u_qc     ON p.admin_karu_qc = u_qc.id_user
     WHERE p.id_permintaan = '$id_permintaan'
 ";
 $data = mysqli_fetch_assoc(mysqli_query($connection, $query));
@@ -58,52 +55,9 @@ $sparepart_detail = mysqli_query($connection, "
     <link rel="icon" href="../foto/favicon.ico" type="image/x-icon">
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Detail Perbaikan - <?= $data['nomor_pengajuan'] ?></title>
+    <title>Detail Perbaikan - <?= htmlspecialchars($data['nomor_pengajuan']) ?></title>
     <style>
-        @media print {
-            .no-print { display: none !important; }
-            @page { 
-                margin: 10mm;
-                size: A4;
-            }
-            body {
-                background: white !important;
-                padding: 0 !important;
-            }
-            .form-wrapper {
-                box-shadow: none !important;
-                margin-bottom: 0 !important;
-                page-break-after: always;
-            }
-            .form-wrapper:last-child {
-                page-break-after: auto;
-            }
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: Arial, sans-serif;
-            font-size: 10pt;
-            line-height: 1.4;
-            background: #f5f5f5;
-            padding: 20px;
-        }
-
-        .print-buttons {
-            text-align: center;
-            margin-bottom: 20px;
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-
-        @media print {
+@media print {
     .no-print { display: none !important; }
     @page { 
         margin: 10mm;
@@ -482,7 +436,7 @@ body {
     }
     
     .signature-section {
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(5, 1fr);
         gap: 10px;
     }
     
@@ -565,24 +519,24 @@ body {
     }
     
     .signature-box .title {
-        font-size: 10pt;
-    }
-    
-    .signature-box img {
-        max-height: 50px;
-        max-width: 130px;
-    }
-    
-    .signature-box .name {
         font-size: 9pt;
     }
     
+    .signature-box img {
+        max-height: 45px;
+        max-width: 110px;
+    }
+    
+    .signature-box .name {
+        font-size: 8.5pt;
+    }
+    
     .signature-box .position {
-        font-size: 8pt;
+        font-size: 7.5pt;
     }
     
     .signature-box .date-time {
-        font-size: 8pt;
+        font-size: 7.5pt;
     }
     
     .location-text {
@@ -623,6 +577,9 @@ body {
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
     }
+    .signature-section {
+        grid-template-columns: repeat(5, 1fr) !important;
+    }
 }
     </style>
 </head>
@@ -651,7 +608,7 @@ body {
                 <h3>PT PETROKOPINDO CIPTA SELARAS</h3>
             </div>
             <div class="form-code">
-                <?= $data['nomor_pengajuan'] ?>
+                <?= htmlspecialchars($data['nomor_pengajuan']) ?>
             </div>
         </div>
 
@@ -659,26 +616,26 @@ body {
         <div class="info-section">
             <div class="info-item">
                 <span class="info-label">JENIS KENDARAAN</span>
-                <span>: <?= $data['jenis_kendaraan'] ?></span>
+                <span>: <?= htmlspecialchars($data['jenis_kendaraan']) ?></span>
             </div>
             <div class="info-item">
                 <span class="info-label">NOMOR ASSET</span>
-                <span>: <?= $data['nopol'] ?></span>
+                <span>: <?= htmlspecialchars($data['nopol']) ?></span>
             </div>
             <div class="info-item">
                 <span class="info-label">REKANAN</span>
-                <span>: <?= $data['nama_rekanan'] ?? '-' ?></span>
+                <span>: <?= htmlspecialchars($data['nama_rekanan'] ?? '-') ?></span>
             </div>
             <div class="info-item">
                 <span class="info-label">BIDANG</span>
-                <span>: <?= $data['bidang'] ?></span>
+                <span>: <?= htmlspecialchars($data['bidang']) ?></span>
             </div>
         </div>
 
         <!-- Keluhan Section -->
         <div class="keluhan-box">
             <strong>KELUHAN / KERUSAKAN :</strong>
-            <p><?= $data['keluhan_awal'] ?></p>
+            <p><?= htmlspecialchars($data['keluhan_awal']) ?></p>
         </div>
 
         <!-- Table Jasa -->
@@ -706,8 +663,8 @@ body {
                 ?>
                 <tr>
                     <td class="center"><?= $no++ ?></td>
-                    <td><?= $jasa['nama_pekerjaan'] ?></td>
-                    <td class="center"><?= $jasa['qty'] ?></td>
+                    <td><?= htmlspecialchars($jasa['nama_pekerjaan']) ?></td>
+                    <td class="center"><?= htmlspecialchars($jasa['qty']) ?></td>
                     <td class="right">Rp <?= number_format($jasa['subtotal'], 0, ',', '.') ?></td>
                 </tr>
                 <?php 
@@ -737,62 +694,80 @@ body {
             GRESIK, <?= date('d F Y', strtotime($data['created_at'])) ?>
         </div>
 
-        <!-- Signatures -->
+        <!-- Signatures: DIAJUKAN, DIPERIKSA(QC), DISETUJUI(SA), DIKERJAKAN(REKANAN), MENGETAHUI(KARU QC) -->
         <div class="signature-section">
+            <!-- DIAJUKAN -->
             <div class="signature-box">
                 <div class="title">DIAJUKAN,</div>
                 <div class="content">
-                    <?php if (!empty($data['driver_ttd'])): ?>
-                        <img src="../uploads/ttd/<?= $data['driver_ttd'] ?>" alt="TTD Driver">
+                    <?php if (!empty($data['driver_nama']) && !empty($data['driver_ttd'])): ?>
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['driver_ttd']) ?>" alt="TTD Unit">
                     <?php endif; ?>
-                    <div class="name"><?= $data['driver_nama'] ?? '-' ?></div>
-                    <div class="position">PENGAWAS</div>
+                    <div class="name"><?= !empty($data['driver_nama']) ? htmlspecialchars($data['driver_nama']) : '-' ?></div>
+                    <div class="position"><?= htmlspecialchars($data['driver_jabatan'] ?? 'PENGAWAS') ?></div>
                     <?php if (!empty($data['tgl_pengajuan'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_pengajuan'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <div class="signature-box">
-                <div class="title">DIPERIKSA,</div>
-                <div class="content">
-                    <?php if (!empty($data['sa_ttd'])): ?>
-                        <img src="../uploads/ttd/<?= $data['sa_ttd'] ?>" alt="TTD SA">
-                    <?php endif; ?>
-                    <div class="name"><?= $data['sa_nama'] ?? '-' ?></div>
-                    <div class="position">SERVICE ADVISOR</div>
-                    <?php if (!empty($data['tgl_diperiksa_sa'])): ?>
-                        <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_diperiksa_sa'])) ?></div>
-                    <?php endif; ?>
-                </div>
-            </div>
+          <!-- DIPERIKSA (QC) -->
+<div class="signature-box">
+    <div class="title">DIPERIKSA,</div>
+    <div class="content">
+        <?php if (!empty($data['qc_nama']) && !empty($data['qc_ttd'])): ?>
+            <img src="../uploads/ttd/<?= htmlspecialchars($data['qc_ttd']) ?>" alt="TTD QC">
+        <?php endif; ?>
+        <div class="name"><?= !empty($data['qc_nama']) ? htmlspecialchars($data['qc_nama']) : '-' ?></div>
+        <div class="position"><?= htmlspecialchars($data['qc_jabatan'] ?? 'QC') ?></div>
+        <?php if (!empty($data['tgl_diperiksa_sa'])): ?>
+            <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_diperiksa_sa'])) ?></div>
+        <?php endif; ?>
+    </div>
+</div>
 
+            <!-- DISETUJUI (SA) -->
             <div class="signature-box">
                 <div class="title">DISETUJUI,</div>
                 <div class="content">
-                    <?php if (!empty($data['ttd_karu_qc'])): ?>
-                        <img src="../uploads/ttd/<?= $data['ttd_karu_qc'] ?>" alt="TTD KARU">
+                    <?php if (!empty($data['sa_nama']) && !empty($data['sa_ttd'])): ?>
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['sa_ttd']) ?>" alt="TTD SA">
                     <?php endif; ?>
-                    <div class="name"><?= $data['karu_nama'] ?? '-' ?></div>
-                    <div class="position">KARU QC</div>
+                    <div class="name"><?= !empty($data['sa_nama']) ? htmlspecialchars($data['sa_nama']) : '-' ?></div>
+                    <div class="position"><?= htmlspecialchars($data['sa_jabatan'] ?? 'SERVICE ADVISOR') ?></div>
                     <?php if (!empty($data['tgl_disetujui_karu_qc'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_disetujui_karu_qc'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
 
+            <!-- DIKERJAKAN (REKANAN) -->
             <div class="signature-box">
-                <div class="title">REKANAN</div>
+                <div class="title">DIKERJAKAN,</div>
                 <div class="content">
-                    <?php if (!empty($data['ttd_rekanan'])): ?><br><br><br><br>
+                    <?php if (!empty($data['nama_rekanan']) && !empty($data['ttd_rekanan'])): ?>
+                        <img src="../uploads/ttd_rekanan/<?= htmlspecialchars($data['ttd_rekanan']) ?>" alt="TTD Rekanan">
                     <?php endif; ?>
-                    <div class="name"><?= $data['nama_rekanan'] ?? '-' ?></div>
-                    
+                    <div class="name"><?= !empty($data['nama_rekanan']) ? htmlspecialchars($data['nama_rekanan']) : '-' ?></div>
                     <?php if (!empty($data['tgl_selesai'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_selesai'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
+<!-- MENGETAHUI (KARU QC) -->
+<div class="signature-box">
+    <div class="title">MENGETAHUI,</div>
+    <div class="content">
+        <?php if (!empty($data['karu_nama']) && !empty($data['karu_ttd'])): ?>
+            <img src="../uploads/ttd/<?= htmlspecialchars($data['karu_ttd']) ?>" alt="TTD Karu QC">
+        <?php endif; ?>
+        <div class="name"><?= !empty($data['karu_nama']) ? htmlspecialchars($data['karu_nama']) : '-' ?></div>
+        <div class="position"><?= htmlspecialchars($data['karu_jabatan'] ?? 'KARU QC') ?></div>
+        <?php if (!empty($data['tgl_selesai'])): ?>
+            <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_selesai'])) ?></div>
+        <?php endif; ?>
+    </div>
+</div>
         </div>
     </div>
     <?php endif; ?>
@@ -812,7 +787,7 @@ body {
                 <h3>PT PETROKOPINDO CIPTA SELARAS</h3>
             </div>
             <div class="form-code">
-                <?= $data['nomor_pengajuan'] ?>
+                <?= htmlspecialchars($data['nomor_pengajuan']) ?>
             </div>
         </div>
 
@@ -820,11 +795,11 @@ body {
         <div class="info-section">
             <div class="info-item">
                 <span class="info-label">NOMOR ASSET</span>
-                <span>: <?= $data['nopol'] ?></span>
+                <span>: <?= htmlspecialchars($data['nopol']) ?></span>
             </div>
             <div class="info-item">
                 <span class="info-label">BIDANG</span>
-                <span>: <?= $data['bidang'] ?></span>
+                <span>: <?= htmlspecialchars($data['bidang']) ?></span>
             </div>
         </div>
 
@@ -853,8 +828,8 @@ body {
                 ?>
                 <tr>
                     <td class="center"><?= $no++ ?></td>
-                    <td><?= $part['nama_sparepart'] ?></td>
-                    <td class="center"><?= $part['qty'] ?></td>
+                    <td><?= htmlspecialchars($part['nama_sparepart']) ?></td>
+                    <td class="center"><?= htmlspecialchars($part['qty']) ?></td>
                     <td class="right">Rp <?= number_format($part['subtotal'], 0, ',', '.') ?></td>
                 </tr>
                 <?php 
@@ -884,61 +859,80 @@ body {
             GRESIK, <?= date('d F Y', strtotime($data['created_at'])) ?>
         </div>
 
-        <!-- Signatures -->
+        <!-- Signatures: DIAJUKAN, DIPERIKSA(QC), DISETUJUI(SA), DIKERJAKAN(REKANAN), MENGETAHUI(KARU QC) -->
         <div class="signature-section">
+            <!-- DIAJUKAN -->
             <div class="signature-box">
                 <div class="title">DIAJUKAN,</div>
                 <div class="content">
-                    <?php if (!empty($data['driver_ttd'])): ?>
-                        <img src="../uploads/ttd/<?= $data['driver_ttd'] ?>" alt="TTD Driver">
+                    <?php if (!empty($data['driver_nama']) && !empty($data['driver_ttd'])): ?>
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['driver_ttd']) ?>" alt="TTD Unit">
                     <?php endif; ?>
-                    <div class="name"><?= $data['driver_nama'] ?? '-' ?></div>
-                    <div class="position">PENGAWAS</div>
+                    <div class="name"><?= !empty($data['driver_nama']) ? htmlspecialchars($data['driver_nama']) : '-' ?></div>
+                    <div class="position"><?= htmlspecialchars($data['driver_jabatan'] ?? 'PENGAWAS') ?></div>
                     <?php if (!empty($data['tgl_pengajuan'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_pengajuan'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <div class="signature-box">
-                <div class="title">DIPERIKSA,</div>
-                <div class="content">
-                    <?php if (!empty($data['ttd_sa'])): ?>
-                        <img src="../uploads/ttd/<?= $data['ttd_sa'] ?>" alt="TTD QC">
-                    <?php endif; ?>
-                    <div class="name"><?= $data['sa_nama'] ?? '-' ?></div>
-                    <div class="position">SERVICE ADVISOR</div>
-                    <?php if (!empty($data['tgl_diperiksa_sa'])): ?>
-                        <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_diperiksa_sa'])) ?></div>
-                    <?php endif; ?>
-                </div>
-            </div>
+          <!-- DIPERIKSA (QC) -->
+<div class="signature-box">
+    <div class="title">DIPERIKSA,</div>
+    <div class="content">
+        <?php if (!empty($data['qc_nama']) && !empty($data['qc_ttd'])): ?>
+            <img src="../uploads/ttd/<?= htmlspecialchars($data['qc_ttd']) ?>" alt="TTD QC">
+        <?php endif; ?>
+        <div class="name"><?= !empty($data['qc_nama']) ? htmlspecialchars($data['qc_nama']) : '-' ?></div>
+        <div class="position"><?= htmlspecialchars($data['qc_jabatan'] ?? 'QC') ?></div>
+        <?php if (!empty($data['tgl_diperiksa_sa'])): ?>
+            <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_diperiksa_sa'])) ?></div>
+        <?php endif; ?>
+    </div>
+</div>
 
+            <!-- DISETUJUI (SA) -->
             <div class="signature-box">
                 <div class="title">DISETUJUI,</div>
                 <div class="content">
-                    <?php if (!empty($data['ttd_karu_qc'])): ?>
-                        <img src="../uploads/ttd/<?= $data['ttd_karu_qc'] ?>" alt="TTD KARU">
+                    <?php if (!empty($data['sa_nama']) && !empty($data['sa_ttd'])): ?>
+                        <img src="../uploads/ttd/<?= htmlspecialchars($data['sa_ttd']) ?>" alt="TTD SA">
                     <?php endif; ?>
-                    <div class="name"><?= $data['karu_nama'] ?? '-' ?></div>
-                    <div class="position">KARU QC</div>
+                    <div class="name"><?= !empty($data['sa_nama']) ? htmlspecialchars($data['sa_nama']) : '-' ?></div>
+                    <div class="position"><?= htmlspecialchars($data['sa_jabatan'] ?? 'SERVICE ADVISOR') ?></div>
                     <?php if (!empty($data['tgl_disetujui_karu_qc'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_disetujui_karu_qc'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
 
+            <!-- DIKERJAKAN (REKANAN) -->
             <div class="signature-box">
-                <div class="title">REKANAN</div>
+                <div class="title">DIKERJAKAN,</div>
                 <div class="content">
-                    <?php if (!empty($data['ttd_rekanan'])): ?><br><br><br><br>
+                    <?php if (!empty($data['nama_rekanan']) && !empty($data['ttd_rekanan'])): ?>
+                        <img src="../uploads/ttd_rekanan/<?= htmlspecialchars($data['ttd_rekanan']) ?>" alt="TTD Rekanan">
                     <?php endif; ?>
-                    <div class="name"><?= $data['nama_rekanan'] ?? '-' ?></div>
+                    <div class="name"><?= !empty($data['nama_rekanan']) ? htmlspecialchars($data['nama_rekanan']) : '-' ?></div>
                     <?php if (!empty($data['tgl_selesai'])): ?>
                         <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_selesai'])) ?></div>
                     <?php endif; ?>
                 </div>
             </div>
+<!-- MENGETAHUI (KARU QC) -->
+<div class="signature-box">
+    <div class="title">MENGETAHUI,</div>
+    <div class="content">
+        <?php if (!empty($data['karu_nama']) && !empty($data['karu_ttd'])): ?>
+            <img src="../uploads/ttd/<?= htmlspecialchars($data['karu_ttd']) ?>" alt="TTD Karu QC">
+        <?php endif; ?>
+        <div class="name"><?= !empty($data['karu_nama']) ? htmlspecialchars($data['karu_nama']) : '-' ?></div>
+        <div class="position"><?= htmlspecialchars($data['karu_jabatan'] ?? 'KARU QC') ?></div>
+        <?php if (!empty($data['tgl_selesai'])): ?>
+            <div class="date-time"><?= date('d/m/Y H:i', strtotime($data['tgl_selesai'])) ?></div>
+        <?php endif; ?>
+    </div>
+</div>
         </div>
     </div>
     <?php endif; ?>

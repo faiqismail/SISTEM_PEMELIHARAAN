@@ -792,7 +792,7 @@ include "navbar.php";
                     <div class="timeline-note" style="border-left: 4px solid #10b981;">
                         <div class="note-header">
                             <i class="fas fa-user-shield note-icon" style="color: #10b981;"></i>
-                            <strong class="note-title" style="color: #10b981;">Catatan Pengawas</strong>
+                            <strong class="note-title" style="color: #10b981;">Catatan Unit</strong>
                         </div>
                         <div class="note-content">
                             <?= nl2br(htmlspecialchars($data_permintaan['catatan_pengawas'])) ?>

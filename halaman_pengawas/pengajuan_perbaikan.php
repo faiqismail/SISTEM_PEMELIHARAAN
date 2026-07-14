@@ -8,6 +8,23 @@ $id_user = $_SESSION['id_user'];
 $role    = $_SESSION['role'];
 
 /* =======================
+   === BIDANG: ambil bidang milik pengawas dari session ===
+   Semua data yang ditampilkan/diproses di halaman ini dibatasi
+   hanya untuk kendaraan yang bidang-nya sama dengan bidang pengawas ini.
+   CATATAN PENTING:
+   - id_pengaju TETAP dicatat sesuai user yang login saat membuat pengajuan (histori/jejak).
+   - TAPI hak akses (lihat/edit/hapus/statistik) dikunci berdasarkan BIDANG,
+     bukan berdasarkan siapa yang mengajukan. Jadi semua pengawas yang berada
+     di bidang yang sama bisa saling melihat, mengedit, dan menghapus data
+     pengajuan milik bidang tersebut.
+======================= */
+$user_bidang = $_SESSION['bidang'] ?? null;
+if (empty($user_bidang)) {
+    die("❌ Akun Anda belum memiliki akses bidang. Silakan hubungi tim Pemeliharaan untuk diberikan akses bidang.");
+}
+$user_bidang_esc = mysqli_real_escape_string($connection, $user_bidang);
+
+/* =======================
    GET USER INFO
 ======================= */
 $user_info = mysqli_fetch_assoc(
@@ -18,12 +35,19 @@ $role_user = $user_info['role'];
 
 /* =======================
    SIMPAN PENGAJUAN
+   id_pengaju diisi id_user yang login saat ini (jejak siapa yang membuat)
 ======================= */
 if (isset($_POST['ajukan'])) {
     $id_kendaraan = mysqli_real_escape_string($connection, $_POST['id_kendaraan']);
     $keluhan      = strtoupper(mysqli_real_escape_string($connection, $_POST['keluhan_awal']));
     $tgl          = date('Y-m-d H:i:s');
     $tahun        = date('Y');
+
+    // Validasi kendaraan yang dipilih benar milik bidang pengawas ini
+    $cek_kendaraan = mysqli_fetch_assoc(mysqli_query($connection, "SELECT bidang FROM kendaraan WHERE id_kendaraan='$id_kendaraan'"));
+    if (!$cek_kendaraan || empty($cek_kendaraan['bidang']) || strcasecmp(trim($cek_kendaraan['bidang']), trim($user_bidang)) !== 0) {
+        die("❌ Kendaraan yang dipilih bukan milik bidang Anda.");
+    }
 
     $query_last = mysqli_query($connection, "
         SELECT nomor_pengajuan 
@@ -49,6 +73,7 @@ if (isset($_POST['ajukan'])) {
     );
     $ttd_pengawas = $u['ttd'];
 
+    // id_pengaju = user yang sedang login (pencatatan siapa yang mengajukan)
     mysqli_query($connection, "
         INSERT INTO permintaan_perbaikan (
             nomor_pengajuan, id_kendaraan, id_pengaju, keluhan_awal,
@@ -59,38 +84,76 @@ if (isset($_POST['ajukan'])) {
         )
     ");
 
+    $_SESSION['success_msg'] = "Pengajuan $nomor_pengajuan berhasil dibuat.";
     header('Location: ' . url_with_tab('pengajuan_perbaikan.php'));
     exit;
 }
 
 /* =======================
    UPDATE PENGAJUAN
+   === AKSES BERBASIS BIDANG: siapapun pengawas di bidang yang sama boleh edit ===
+   id_pengaju TIDAK diikutkan sebagai syarat, hanya k.bidang yang dicek.
 ======================= */
 if (isset($_POST['update'])) {
     $id_permintaan = mysqli_real_escape_string($connection, $_POST['id_permintaan']);
     $id_kendaraan  = mysqli_real_escape_string($connection, $_POST['id_kendaraan']);
     $keluhan       = strtoupper(mysqli_real_escape_string($connection, $_POST['keluhan_awal']));
 
+    // Validasi kendaraan baru yang dipilih harus milik bidang ini
+    $cek_kendaraan = mysqli_fetch_assoc(mysqli_query($connection, "SELECT bidang FROM kendaraan WHERE id_kendaraan='$id_kendaraan'"));
+    if (!$cek_kendaraan || empty($cek_kendaraan['bidang']) || strcasecmp(trim($cek_kendaraan['bidang']), trim($user_bidang)) !== 0) {
+        die("❌ Kendaraan yang dipilih bukan milik bidang Anda.");
+    }
+
+    // Pastikan data yang diedit memang milik bidang pengawas ini (cek lewat JOIN ke kendaraan LAMA-nya)
+    $cek_akses = mysqli_fetch_assoc(mysqli_query($connection, "
+        SELECT p.id_permintaan 
+        FROM permintaan_perbaikan p
+        JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
+        WHERE p.id_permintaan = '$id_permintaan' AND k.bidang = '$user_bidang_esc'
+    "));
+    if (!$cek_akses) {
+        die("❌ Data pengajuan tidak ditemukan atau bukan milik bidang Anda.");
+    }
+
+    // Update tanpa syarat id_pengaju — semua pengawas di bidang yang sama boleh mengedit
     mysqli_query($connection, "
         UPDATE permintaan_perbaikan SET
             id_kendaraan = '$id_kendaraan',
             keluhan_awal = '$keluhan'
-        WHERE id_permintaan = '$id_permintaan' AND id_pengaju = '$id_user'
+        WHERE id_permintaan = '$id_permintaan'
     ");
 
+    $_SESSION['success_msg'] = "Pengajuan berhasil diperbarui.";
     header('Location: ' . url_with_tab('pengajuan_perbaikan.php'));
     exit;
 }
 
 /* =======================
    DELETE PENGAJUAN
+   === AKSES BERBASIS BIDANG: siapapun pengawas di bidang yang sama boleh hapus ===
 ======================= */
 if (isset($_GET['delete'])) {
     $id_permintaan = mysqli_real_escape_string($connection, $_GET['delete']);
+
+    // Pastikan data yang dihapus memang milik bidang pengawas ini
+    $cek_akses = mysqli_fetch_assoc(mysqli_query($connection, "
+        SELECT p.id_permintaan, p.status
+        FROM permintaan_perbaikan p
+        JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
+        WHERE p.id_permintaan = '$id_permintaan' AND k.bidang = '$user_bidang_esc'
+    "));
+    if (!$cek_akses) {
+        die("❌ Data pengajuan tidak ditemukan atau bukan milik bidang Anda.");
+    }
+
+    // Hapus tanpa syarat id_pengaju — semua pengawas di bidang yang sama boleh menghapus
     mysqli_query($connection, "
         DELETE FROM permintaan_perbaikan 
-        WHERE id_permintaan = '$id_permintaan' AND id_pengaju = '$id_user'
+        WHERE id_permintaan = '$id_permintaan'
     ");
+
+    $_SESSION['success_msg'] = "Pengajuan berhasil dihapus.";
     header('Location: ' . url_with_tab('pengajuan_perbaikan.php'));
     exit;
 }
@@ -101,36 +164,82 @@ if (isset($_GET['delete'])) {
 $dash_bulan = isset($_GET['dash_bulan']) ? (int)$_GET['dash_bulan'] : 0;
 $dash_tahun = isset($_GET['dash_tahun']) ? (int)$_GET['dash_tahun'] : 0;
 
-// Bangun WHERE untuk dashboard stats
-$dash_where = "WHERE id_pengaju = '$id_user'";
+// === AKSES BERBASIS BIDANG: dibatasi hanya k.bidang = bidang pengawas ini (BUKAN id_pengaju) ===
+$dash_where = "WHERE k.bidang = '$user_bidang_esc'";
 if ($dash_tahun > 0) {
-    $dash_where .= " AND YEAR(tgl_pengajuan) = '$dash_tahun'";
+    $dash_where .= " AND YEAR(p.tgl_pengajuan) = '$dash_tahun'";
 }
 if ($dash_bulan > 0) {
-    $dash_where .= " AND MONTH(tgl_pengajuan) = '$dash_bulan'";
+    $dash_where .= " AND MONTH(p.tgl_pengajuan) = '$dash_bulan'";
 }
 
 /* =======================
-   GET STATISTIK (dengan filter dashboard)
+   GET STATISTIK (dengan filter dashboard + filter bidang)
+   ======================================================
+   PEMBAGIAN KATEGORI (saling eksklusif, total selalu pas):
+   - proses                 : masih jalan normal di alur SA/QC,
+                               belum ada keputusan persetujuan_pengawas
+                               (Disetujui/Ditolak), dan belum Selesai.
+   - perlu_persetujuan_unit : status Dikembalikan_sa / Minta_Persetujuan_Pengawas
+                               DAN persetujuan_pengawas masih 'Menunggu'
+                               -> benar2 menunggu KEPUTUSAN Anda (pengawas/unit).
+   - perlu_tindak_lanjut_pemeliharaan:
+                               persetujuan_pengawas = 'Disetujui' DAN status
+                               belum 'Selesai'
+                               -> bola sudah ada di SA/QC (Tim Pemeliharaan)
+                               untuk melanjutkan pengerjaan, BUKAN lagi
+                               menunggu Anda. Berlaku SELAMANYA sampai
+                               statusnya benar2 'Selesai', walau status
+                               internal berubah-ubah di alur SA/QC (fix bug:
+                               dulu hanya dihitung saat status masih
+                               Dikembalikan_sa/Minta_Persetujuan_Pengawas,
+                               sehingga begitu SA/QC mulai memproses lagi
+                               dan status berubah, baris ini "hilang" dan
+                               malah kehitung ulang sebagai "Proses").
+   - ditolak_unit            : persetujuan_pengawas = 'Ditolak' DAN status
+                               belum 'Selesai'
+                               -> sudah Anda TOLAK, tidak dilanjutkan ke bengkel.
+                               Dipisah dari kategori di atas supaya tidak
+                               tercampur dengan yang memang sedang dikerjakan.
+   - selesai                : status Selesai.
+   Total = proses + perlu_persetujuan_unit + perlu_tindak_lanjut_pemeliharaan
+           + ditolak_unit + selesai
 ======================= */
 $stats_query = mysqli_query($connection, "
     SELECT 
         COUNT(*) AS total,
-        SUM(CASE WHEN status NOT IN ('Selesai') THEN 1 ELSE 0 END) AS proses,
-        SUM(CASE WHEN status IN ('Dikembalikan_sa','Minta_Persetujuan_Pengawas') AND persetujuan_pengawas = 'Menunggu' THEN 1 ELSE 0 END) AS perlu_persetujuan,
-        SUM(CASE WHEN status = 'Selesai' THEN 1 ELSE 0 END) AS selesai
-    FROM permintaan_perbaikan
+        SUM(CASE WHEN p.status != 'Selesai'
+                      AND p.status NOT IN ('Minta_Persetujuan_Pengawas','Dikembalikan_sa')
+                      AND (p.persetujuan_pengawas IS NULL OR p.persetujuan_pengawas NOT IN ('Disetujui','Ditolak'))
+                 THEN 1 ELSE 0 END) AS proses,
+        SUM(CASE WHEN p.status IN ('Dikembalikan_sa','Minta_Persetujuan_Pengawas') 
+                      AND p.persetujuan_pengawas = 'Menunggu' 
+                 THEN 1 ELSE 0 END) AS perlu_persetujuan_unit,
+        SUM(CASE WHEN p.status != 'Selesai'
+                      AND p.persetujuan_pengawas = 'Disetujui' 
+                 THEN 1 ELSE 0 END) AS perlu_tindak_lanjut_pemeliharaan,
+        SUM(CASE WHEN p.status != 'Selesai'
+                      AND p.persetujuan_pengawas = 'Ditolak' 
+                 THEN 1 ELSE 0 END) AS ditolak_unit,
+        SUM(CASE WHEN p.status = 'Selesai' THEN 1 ELSE 0 END) AS selesai
+    FROM permintaan_perbaikan p
+    JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
     $dash_where
 ");
 $stats = mysqli_fetch_assoc($stats_query);
+if (!$stats) {
+    $stats = ['total'=>0,'proses'=>0,'perlu_persetujuan_unit'=>0,'perlu_tindak_lanjut_pemeliharaan'=>0,'ditolak_unit'=>0,'selesai'=>0];
+}
 
 /* =======================
    AMBIL DAFTAR TAHUN TERSEDIA
+   === AKSES BERBASIS BIDANG (BUKAN id_pengaju) ===
 ======================= */
 $tahun_query = mysqli_query($connection, "
-    SELECT DISTINCT YEAR(tgl_pengajuan) AS thn 
-    FROM permintaan_perbaikan 
-    WHERE id_pengaju = '$id_user' 
+    SELECT DISTINCT YEAR(p.tgl_pengajuan) AS thn 
+    FROM permintaan_perbaikan p
+    JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
+    WHERE k.bidang = '$user_bidang_esc'
     ORDER BY thn DESC
 ");
 $list_tahun = [];
@@ -142,23 +251,38 @@ while ($r = mysqli_fetch_assoc($tahun_query)) {
    FILTER TABEL DATA
 ======================= */
 $filter_status  = isset($_GET['filter_status'])  ? mysqli_real_escape_string($connection, $_GET['filter_status'])  : '';
-$filter_bidang  = isset($_GET['filter_bidang'])  ? mysqli_real_escape_string($connection, $_GET['filter_bidang'])  : '';
 $filter_jenis   = isset($_GET['filter_jenis'])   ? mysqli_real_escape_string($connection, $_GET['filter_jenis'])   : '';
 $search_nopol   = isset($_GET['search_nopol'])   ? mysqli_real_escape_string($connection, $_GET['search_nopol'])   : '';
 $search_tanggal = isset($_GET['search_tanggal']) ? mysqli_real_escape_string($connection, $_GET['search_tanggal']) : '';
 $search_nomor   = isset($_GET['search_nomor'])   ? mysqli_real_escape_string($connection, $_GET['search_nomor'])   : '';
 
-$where_clause = "WHERE p.id_pengaju = '$id_user' AND p.status != 'Selesai'";
+// === AKSES BERBASIS BIDANG: base where_clause dibatasi k.bidang, BUKAN id_pengaju ===
+// === FILTER STATUS: disamakan 1:1 dengan definisi kartu dashboard di atas,
+//     supaya saat difilter, jumlah baris tabel = angka pada kartu terkait. ===
+$where_clause = "WHERE p.status != 'Selesai' AND k.bidang = '$user_bidang_esc'";
 
 if (!empty($filter_status)) {
-    if ($filter_status === 'Disetujui_KARU_QC') {
-        $where_clause = "WHERE p.id_pengaju = '$id_user' AND p.status IN ('Disetujui_KARU_QC', 'QC', 'Dikembalikan_sa')";
-    } elseif ($filter_status === 'Perlu_Persetujuan') {
-        $where_clause = "WHERE p.id_pengaju = '$id_user' AND p.status IN ('Dikembalikan_sa','Minta_Persetujuan_Pengawas') AND p.persetujuan_pengawas = 'Menunggu'";
+    if ($filter_status === 'Proses') {
+        // = kartu "Proses"
+        $where_clause = "WHERE p.status != 'Selesai'
+                          AND p.status NOT IN ('Minta_Persetujuan_Pengawas','Dikembalikan_sa')
+                          AND (p.persetujuan_pengawas IS NULL OR p.persetujuan_pengawas NOT IN ('Disetujui','Ditolak'))
+                          AND k.bidang = '$user_bidang_esc'";
+    } elseif ($filter_status === 'Perlu_Persetujuan_Unit') {
+        // = kartu "Perlu Persetujuan Unit" -> benar-benar menunggu KEPUTUSAN pengawas/unit
+        $where_clause = "WHERE p.status IN ('Dikembalikan_sa','Minta_Persetujuan_Pengawas') AND p.persetujuan_pengawas = 'Menunggu' AND k.bidang = '$user_bidang_esc'";
+    } elseif ($filter_status === 'Perlu_TindakLanjut_Pemeliharaan') {
+        // = kartu "Tindak Lanjut Pemeliharaan" -> sudah DISETUJUI pengawas, menunggu SA/QC (Tim Pemeliharaan)
+        //   berlaku selama status belum 'Selesai', apapun status internal di alur SA/QC saat ini.
+        $where_clause = "WHERE p.status != 'Selesai' AND p.persetujuan_pengawas = 'Disetujui' AND k.bidang = '$user_bidang_esc'";
+    } elseif ($filter_status === 'Ditolak_Unit') {
+        // = kartu "Ditolak Unit" -> sudah DITOLAK pengawas, tidak dilanjutkan ke bengkel
+        $where_clause = "WHERE p.status != 'Selesai' AND p.persetujuan_pengawas = 'Ditolak' AND k.bidang = '$user_bidang_esc'";
     } elseif ($filter_status === 'Selesai') {
-        $where_clause = "WHERE p.id_pengaju = '$id_user' AND p.status = 'Selesai'";
+        // = kartu "Selesai"
+        $where_clause = "WHERE p.status = 'Selesai' AND k.bidang = '$user_bidang_esc'";
     } else {
-        $where_clause = "WHERE p.id_pengaju = '$id_user' AND p.status = '$filter_status'";
+        $where_clause = "WHERE p.status = '$filter_status' AND k.bidang = '$user_bidang_esc'";
     }
 }
 if (!empty($search_nopol))   $where_clause .= " AND k.nopol LIKE '%$search_nopol%'";
@@ -166,31 +290,20 @@ if (!empty($search_tanggal) && strtotime($search_tanggal) && preg_match('/^\d{4}
     $where_clause .= " AND DATE(p.tgl_pengajuan) = '$search_tanggal'";
 }
 if (!empty($search_nomor))   $where_clause .= " AND p.nomor_pengajuan LIKE '%$search_nomor%'";
-if (!empty($filter_bidang))  $where_clause .= " AND k.bidang = '$filter_bidang'";
 if (!empty($filter_jenis))   $where_clause .= " AND k.jenis_kendaraan LIKE '%$filter_jenis%'";
 
 /* =======================
-   GET LIST BIDANG & JENIS (untuk dropdown filter)
+   GET LIST JENIS (untuk dropdown filter)
+   === AKSES BERBASIS BIDANG (BUKAN id_pengaju) ===
+   (Dropdown filter Bidang dihapus karena pengawas hanya punya 1 bidang akses)
 ======================= */
-$list_bidang = [];
-$qb = mysqli_query($connection, "
-    SELECT DISTINCT k.bidang 
-    FROM kendaraan k 
-    JOIN permintaan_perbaikan p ON k.id_kendaraan = p.id_kendaraan
-    WHERE p.id_pengaju = '$id_user'
-      AND p.status != 'Selesai'
-      AND k.bidang IS NOT NULL AND k.bidang != '' 
-    ORDER BY k.bidang ASC
-");
-while ($rb = mysqli_fetch_assoc($qb)) $list_bidang[] = $rb['bidang'];
-
 $list_jenis = [];
 $qj = mysqli_query($connection, "
     SELECT DISTINCT k.jenis_kendaraan 
     FROM kendaraan k 
     JOIN permintaan_perbaikan p ON k.id_kendaraan = p.id_kendaraan
-    WHERE p.id_pengaju = '$id_user'
-      AND p.status != 'Selesai'
+    WHERE p.status != 'Selesai'
+      AND k.bidang = '$user_bidang_esc'
       AND k.jenis_kendaraan IS NOT NULL AND k.jenis_kendaraan != '' 
     ORDER BY k.jenis_kendaraan ASC
 ");
@@ -218,15 +331,23 @@ $to_record   = min($offset + $per_page, $total_data);
 
 /* =======================
    GET DATA FOR EDIT
+   === AKSES BERBASIS BIDANG: siapapun di bidang yang sama boleh membuka form edit ===
 ======================= */
 $edit_data = null;
 if (isset($_GET['edit'])) {
     $id_edit    = mysqli_real_escape_string($connection, $_GET['edit']);
     $edit_query = mysqli_query($connection, "
-        SELECT * FROM permintaan_perbaikan 
-        WHERE id_permintaan = '$id_edit' AND id_pengaju = '$id_user'
+        SELECT p.* FROM permintaan_perbaikan p
+        JOIN kendaraan k ON p.id_kendaraan = k.id_kendaraan
+        WHERE p.id_permintaan = '$id_edit' AND k.bidang = '$user_bidang_esc'
     ");
     $edit_data = mysqli_fetch_assoc($edit_query);
+    if (!$edit_data) {
+        // Data tidak ditemukan / bukan milik bidang ini -> jangan tampilkan form edit orang lain
+        $_SESSION['success_msg'] = "Data yang ingin diedit tidak ditemukan atau bukan milik bidang Anda.";
+        header('Location: ' . url_with_tab('pengajuan_perbaikan.php'));
+        exit;
+    }
 }
 
 $success_msg = $_SESSION['success_msg'] ?? '';
@@ -285,7 +406,17 @@ function buildPageUrl($p) {
             gap: 15px;
         }
         .header h1 { font-size: 1.6em; }
-        .header-info { display: flex; gap: 15px; align-items: center; font-size: 0.9em; }
+        .header-info { display: flex; gap: 15px; align-items: center; font-size: 0.9em; flex-wrap: wrap; }
+        .bidang-chip {
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.35);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
 
         /* ======= ALERT ======= */
         .alert {
@@ -364,7 +495,7 @@ function buildPageUrl($p) {
         /* Stats Cards Grid */
         .stats-container {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(6, 1fr);
             gap: 0;
             background: white;
             border-radius: 0 0 12px 12px;
@@ -374,7 +505,7 @@ function buildPageUrl($p) {
         }
 
         .stat-card {
-            padding: 22px 20px;
+            padding: 22px 18px;
             transition: transform 0.3s ease, box-shadow 0.3s ease;
             border-top: 4px solid;
             position: relative;
@@ -396,48 +527,56 @@ function buildPageUrl($p) {
             opacity: 0.06;
         }
 
-        .stat-card.total        { border-top-color: #3498db; }
-        .stat-card.proses       { border-top-color: #f39c12; }
-        .stat-card.persetujuan  { border-top-color: #9b59b6; }
-        .stat-card.selesai      { border-top-color: #2ecc71; }
+        .stat-card.total          { border-top-color: #3498db; }
+        .stat-card.proses         { border-top-color: #f39c12; }
+        .stat-card.persetujuan    { border-top-color: #9b59b6; }
+        .stat-card.pemeliharaan   { border-top-color: #16a085; }
+        .stat-card.ditolak        { border-top-color: #e74c3c; }
+        .stat-card.selesai        { border-top-color: #2ecc71; }
 
-        .stat-card.total::after        { background: #3498db; }
-        .stat-card.proses::after       { background: #f39c12; }
-        .stat-card.persetujuan::after  { background: #9b59b6; }
-        .stat-card.selesai::after      { background: #2ecc71; }
+        .stat-card.total::after          { background: #3498db; }
+        .stat-card.proses::after         { background: #f39c12; }
+        .stat-card.persetujuan::after    { background: #9b59b6; }
+        .stat-card.pemeliharaan::after   { background: #16a085; }
+        .stat-card.ditolak::after        { background: #e74c3c; }
+        .stat-card.selesai::after        { background: #2ecc71; }
 
         .stat-icon {
-            width: 46px; height: 46px;
+            width: 44px; height: 44px;
             border-radius: 10px;
             display: flex; align-items: center; justify-content: center;
-            font-size: 1.3em;
+            font-size: 1.2em;
             margin-bottom: 12px;
         }
-        .stat-card.total .stat-icon       { background: rgba(52,152,219,0.12); color: #3498db; }
-        .stat-card.proses .stat-icon      { background: rgba(243,156,18,0.12); color: #f39c12; }
-        .stat-card.persetujuan .stat-icon { background: rgba(155,89,182,0.12); color: #9b59b6; }
-        .stat-card.selesai .stat-icon     { background: rgba(46,204,113,0.12); color: #2ecc71; }
+        .stat-card.total .stat-icon        { background: rgba(52,152,219,0.12); color: #3498db; }
+        .stat-card.proses .stat-icon       { background: rgba(243,156,18,0.12); color: #f39c12; }
+        .stat-card.persetujuan .stat-icon  { background: rgba(155,89,182,0.12); color: #9b59b6; }
+        .stat-card.pemeliharaan .stat-icon { background: rgba(22,160,133,0.12); color: #16a085; }
+        .stat-card.ditolak .stat-icon      { background: rgba(231,76,60,0.12); color: #e74c3c; }
+        .stat-card.selesai .stat-icon      { background: rgba(46,204,113,0.12); color: #2ecc71; }
 
         .stat-number {
-            font-size: 2.2em;
+            font-size: 2em;
             font-weight: 800;
             line-height: 1;
             margin-bottom: 6px;
         }
-        .stat-card.total .stat-number       { color: #3498db; }
-        .stat-card.proses .stat-number      { color: #f39c12; }
-        .stat-card.persetujuan .stat-number { color: #9b59b6; }
-        .stat-card.selesai .stat-number     { color: #2ecc71; }
+        .stat-card.total .stat-number        { color: #3498db; }
+        .stat-card.proses .stat-number       { color: #f39c12; }
+        .stat-card.persetujuan .stat-number  { color: #9b59b6; }
+        .stat-card.pemeliharaan .stat-number { color: #16a085; }
+        .stat-card.ditolak .stat-number      { color: #e74c3c; }
+        .stat-card.selesai .stat-number      { color: #2ecc71; }
 
         .stat-label {
-            font-size: 0.88em;
+            font-size: 0.82em;
             font-weight: 600;
             color: #7f8c8d;
             text-transform: uppercase;
             letter-spacing: 0.3px;
         }
         .stat-sub {
-            font-size: 0.75em;
+            font-size: 0.73em;
             color: #bdc3c7;
             margin-top: 3px;
         }
@@ -598,6 +737,12 @@ function buildPageUrl($p) {
         .asal-qc { background: #ede9fe; color: #7c3aed; border: 1px solid #c4b5fd; }
         .asal-sa { background: #fef3c7; color: #d97706; border: 1px solid #fcd34d; }
 
+        .tindak-lanjut-note {
+            margin-top: 5px; padding: 5px 9px; border-radius: 7px;
+            font-size: 0.76em; background: #e8f8f4; border-left: 3px solid #16a085; color: #0e6655;
+            display: inline-flex; align-items: center; gap: 5px;
+        }
+
         .persetujuan-btns { display: flex; gap: 7px; margin-top: 7px; flex-wrap: wrap; }
         .btn-setuju {
             background: #8b5cf6; color: white; border: none;
@@ -686,12 +831,10 @@ function buildPageUrl($p) {
         }
 
         /* ======= RESPONSIVE ======= */
-        @media (max-width: 1024px) {
-            .stats-container { grid-template-columns: repeat(2, 1fr); }
-            .stat-card:nth-child(2) { border-right: 1px solid #f0f0f0; }
-            .stat-card:nth-child(even) { border-right: none; }
-            .stat-card:nth-child(1),
-            .stat-card:nth-child(2) { border-bottom: 1px solid #f0f0f0; }
+        @media (max-width: 1200px) {
+            .stats-container { grid-template-columns: repeat(3, 1fr); }
+            .stat-card:nth-child(3n) { border-right: none; }
+            .stat-card:nth-child(-n+3) { border-bottom: 1px solid #f0f0f0; }
         }
 
         @media (max-width: 768px) {
@@ -700,11 +843,14 @@ function buildPageUrl($p) {
             .stats-section  { padding: 15px 15px 0 15px; }
             .content-section { padding: 15px; }
             .stats-container { grid-template-columns: repeat(2, 1fr); }
+            .stat-card:nth-child(3n) { border-right: 1px solid #f0f0f0; }
+            .stat-card:nth-child(2n) { border-right: none; }
+            .stat-card:nth-child(-n+4) { border-bottom: 1px solid #f0f0f0; }
             .dash-filter-bar { padding: 10px 14px; gap: 8px; }
             .dash-filter-bar select { min-width: 110px; }
             .dash-period-label { display: none; }
             .stat-card { padding: 16px 14px; }
-            .stat-number { font-size: 1.8em; }
+            .stat-number { font-size: 1.6em; }
             .card-body { padding: 15px; }
             .search-box { grid-template-columns: 1fr 1fr; }
             .pagination-bar { justify-content: center; }
@@ -733,6 +879,7 @@ function buildPageUrl($p) {
     <div class="header">
         <h1><i class="fas fa-tools"></i> Pengajuan Perbaikan</h1>
         <div class="header-info">
+            <span class="bidang-chip"><i class="fas fa-building"></i> Bidang: <?= htmlspecialchars($user_bidang) ?></span>
             <span><i class="fas fa-calendar"></i> <?= date('d F Y') ?></span>
         </div>
     </div>
@@ -757,7 +904,6 @@ function buildPageUrl($p) {
             <?php if(!empty($search_nopol))   echo "<input type='hidden' name='search_nopol' value='".htmlspecialchars($search_nopol)."'>"; ?>
             <?php if(!empty($search_tanggal)) echo "<input type='hidden' name='search_tanggal' value='".htmlspecialchars($search_tanggal)."'>"; ?>
             <?php if(!empty($search_nomor))   echo "<input type='hidden' name='search_nomor' value='".htmlspecialchars($search_nomor)."'>"; ?>
-            <?php if(!empty($filter_bidang))  echo "<input type='hidden' name='filter_bidang' value='".htmlspecialchars($filter_bidang)."'>"; ?>
             <?php if(!empty($filter_jenis))   echo "<input type='hidden' name='filter_jenis' value='".htmlspecialchars($filter_jenis)."'>"; ?>
 
             <label><i class="fas fa-chart-bar"></i> Dashboard:</label>
@@ -809,7 +955,7 @@ function buildPageUrl($p) {
                 <div class="stat-icon"><i class="fas fa-file-alt"></i></div>
                 <div class="stat-number"><?= $stats['total'] ?></div>
                 <div class="stat-label">Total Keseluruhan</div>
-                <div class="stat-sub">Semua pengajuan</div>
+                <div class="stat-sub">Semua pengajuan bidang ini</div>
             </div>
 
             <!-- 2. Proses -->
@@ -817,18 +963,34 @@ function buildPageUrl($p) {
                 <div class="stat-icon"><i class="fas fa-spinner"></i></div>
                 <div class="stat-number"><?= $stats['proses'] ?></div>
                 <div class="stat-label">Proses</div>
-                <div class="stat-sub">Belum selesai</div>
+                <div class="stat-sub">Pengajuan Masih di SA atau QC</div>
             </div>
 
-            <!-- 3. Perlu Persetujuan -->
+            <!-- 3. Perlu Persetujuan Unit -->
             <div class="stat-card persetujuan">
                 <div class="stat-icon"><i class="fas fa-user-check"></i></div>
-                <div class="stat-number"><?= $stats['perlu_persetujuan'] ?></div>
-                <div class="stat-label">Perlu Persetujuan</div>
+                <div class="stat-number"><?= $stats['perlu_persetujuan_unit'] ?></div>
+                <div class="stat-label">Perlu Persetujuan Unit</div>
                 <div class="stat-sub">Menunggu keputusan Anda</div>
             </div>
 
-            <!-- 4. Selesai -->
+            <!-- 5. Ditolak Unit -->
+            <div class="stat-card ditolak">
+                <div class="stat-icon"><i class="fas fa-ban"></i></div>
+                <div class="stat-number"><?= $stats['ditolak_unit'] ?></div>
+                <div class="stat-label">Persetujuan Ditolak Unit</div>
+                <div class="stat-sub">Menunggu keputusan SA</div>
+            </div>
+            <!-- 4. Perlu Tindak Lanjut Tim Pemeliharaan (khusus yang DISETUJUI) -->
+            <div class="stat-card pemeliharaan">
+                <div class="stat-icon"><i class="fas fa-screwdriver-wrench"></i></div>
+                <div class="stat-number"><?= $stats['perlu_tindak_lanjut_pemeliharaan'] ?></div>
+                <div class="stat-label">Dikerjakan di bengkel</div>
+                <div class="stat-sub">Telah Disetujui Anda</div>
+            </div>
+
+
+            <!-- 6. Selesai -->
             <div class="stat-card selesai">
                 <div class="stat-icon"><i class="fas fa-check-double"></i></div>
                 <div class="stat-number"><?= $stats['selesai'] ?></div>
@@ -881,7 +1043,7 @@ function buildPageUrl($p) {
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label><i class="fas fa-car"></i> Nomor Asset</label>
+                            <label><i class="fas fa-car"></i> Nomor Asset <span style="font-weight:400;color:#7f8c8d;">(Bidang: <?= htmlspecialchars($user_bidang) ?>)</span></label>
                             <div class="custom-select-wrapper">
                                 <input type="text" id="search_kendaraan_input"
                                     class="form-control search-select-input"
@@ -891,10 +1053,15 @@ function buildPageUrl($p) {
                                 <div class="select-dropdown" id="kendaraan_dropdown">
                                     <div class="dropdown-item" data-value="">-- Pilih Nomor Asset --</div>
                                     <?php
-                                    $k = mysqli_query($connection, "SELECT * FROM kendaraan WHERE status='Aktif' ORDER BY nopol");
-                                    while ($r = mysqli_fetch_assoc($k)) {
-                                        $sel = ($edit_data && $edit_data['id_kendaraan'] == $r['id_kendaraan']) ? 'active' : '';
-                                        echo "<div class='dropdown-item $sel' data-value='{$r['id_kendaraan']}' data-text='{$r['nopol']}'>{$r['nopol']}</div>";
+                                    // Hanya tampilkan kendaraan milik bidang pengawas ini
+                                    $k = mysqli_query($connection, "SELECT * FROM kendaraan WHERE status='Aktif' AND bidang='$user_bidang_esc' ORDER BY nopol");
+                                    if (mysqli_num_rows($k) > 0) {
+                                        while ($r = mysqli_fetch_assoc($k)) {
+                                            $sel = ($edit_data && $edit_data['id_kendaraan'] == $r['id_kendaraan']) ? 'active' : '';
+                                            echo "<div class='dropdown-item $sel' data-value='{$r['id_kendaraan']}' data-text='{$r['nopol']}'>{$r['nopol']}</div>";
+                                        }
+                                    } else {
+                                        echo "<div class='dropdown-empty'><i class='fas fa-info-circle'></i> Belum ada kendaraan terdaftar untuk bidang ini</div>";
                                     }
                                     ?>
                                 </div>
@@ -931,7 +1098,7 @@ function buildPageUrl($p) {
         <!-- Table Card -->
         <div class="card">
             <div class="card-header">
-                <h3><i class="fas fa-list"></i> Daftar Pengajuan Saya</h3>
+                <h3><i class="fas fa-list"></i> Daftar Pengajuan <span style="font-weight:400;font-size:0.7em;color:#7f8c8d;">(Bidang: <?= htmlspecialchars($user_bidang) ?> — semua pengajuan bidang ini, bisa diedit/dihapus oleh semua Unit bidang ini)</span></h3>
             </div>
             <div class="card-body">
                 <div class="search-box">
@@ -939,19 +1106,10 @@ function buildPageUrl($p) {
                         <label><i class="fas fa-filter"></i> Filter Proses</label>
                         <select id="filter_status" class="form-control">
                             <option value="">-- Semua Proses --</option>
-                            <option value="Diajukan"          <?= ($filter_status=='Diajukan')          ?'selected':''?>>Diajukan</option>
-                            <option value="Diperiksa_SA"      <?= ($filter_status=='Diperiksa_SA')      ?'selected':''?>>Diperiksa SA</option>
-                            <option value="Disetujui_KARU_QC" <?= ($filter_status=='Disetujui_KARU_QC') ?'selected':''?>>Disetujui KARU QC</option>
-                            <option value="Perlu_Persetujuan" <?= ($filter_status=='Perlu_Persetujuan') ?'selected':''?>>&#9888; Perlu Persetujuan Pengawas</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label><i class="fas fa-building"></i> Bidang</label>
-                        <select id="filter_bidang" class="form-control">
-                            <option value="">-- Semua Bidang --</option>
-                            <?php foreach ($list_bidang as $bd): ?>
-                                <option value="<?= htmlspecialchars($bd) ?>" <?= ($filter_bidang==$bd)?'selected':''?>><?= htmlspecialchars($bd) ?></option>
-                            <?php endforeach; ?>
+                            <option value="Proses" <?= ($filter_status=='Proses') ?'selected':''?>>Proses</option>
+                            <option value="Perlu_Persetujuan_Unit" <?= ($filter_status=='Perlu_Persetujuan_Unit') ?'selected':''?>>Perlu Persetujuan Unit</option>
+                            <option value="Ditolak_Unit" <?= ($filter_status=='Ditolak_Unit') ?'selected':''?>>Persetujuan Ditolak Unit</option>
+                            <option value="Perlu_TindakLanjut_Pemeliharaan" <?= ($filter_status=='Perlu_TindakLanjut_Pemeliharaan') ?'selected':''?>>Tindak Lanjut Pemeliharaan</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -980,7 +1138,7 @@ function buildPageUrl($p) {
                     </div>
                 </div>
                 <?php
-                $ada_filter = (!empty($filter_status) || !empty($filter_bidang) || !empty($filter_jenis) || !empty($search_nopol) || !empty($search_tanggal) || !empty($search_nomor));
+                $ada_filter = (!empty($filter_status) || !empty($filter_jenis) || !empty($search_nopol) || !empty($search_tanggal) || !empty($search_nomor));
                 $reset_url  = 'pengajuan_perbaikan.php';
                 // Pertahankan filter dashboard jika ada
                 $dash_params = [];
@@ -1046,6 +1204,11 @@ function buildPageUrl($p) {
 
                                 $need_approval_btn = (in_array($status_current, ['Dikembalikan_sa','Minta_Persetujuan_Pengawas'])
                                                  && $d['persetujuan_pengawas'] === 'Menunggu');
+
+                                // Sudah diputuskan pengawas (Disetujui/Ditolak), tapi status masih menggantung
+                                // menunggu SA/QC (Tim Pemeliharaan) melanjutkan prosesnya.
+                                $tunggu_tindak_lanjut_pemeliharaan = (in_array($status_current, ['Dikembalikan_sa','Minta_Persetujuan_Pengawas'])
+                                                 && in_array($d['persetujuan_pengawas'], ['Disetujui','Ditolak']));
                         ?>
                             <tr>
                                 <td style="text-align:center;font-weight:bold;color:#2c3e50;"><?= $no++ ?></td>
@@ -1074,7 +1237,7 @@ function buildPageUrl($p) {
                                         <div class="timeline-item <?= $tgl_diperiksa_sa?'completed':'pending' ?>">
                                             <i class="fas fa-check-circle tl-icon"></i>
                                             <div style="flex:1;">
-                                                <div class="timeline-status">Diperiksa SA</div>
+                                                <div class="timeline-status">Disetujui SA</div>
                                                 <?php if ($tgl_diperiksa_sa): ?>
                                                     <div class="timeline-date"><?= date('d/m/Y H:i', strtotime($d['tgl_diperiksa_sa'])) ?></div>
                                                 <?php endif; ?>
@@ -1084,53 +1247,81 @@ function buildPageUrl($p) {
                                         <div class="timeline-item <?= $tgl_disetujui_karu?'completed':'pending' ?>">
                                             <i class="fas fa-check-circle tl-icon"></i>
                                             <div style="flex:1;">
-                                                <div class="timeline-status">Disetujui KARU QC</div>
+                                                <div class="timeline-status">Diperiksa QC</div>
                                                 <?php if ($tgl_disetujui_karu): ?>
                                                     <div class="timeline-date"><?= date('d/m/Y H:i', strtotime($d['tgl_disetujui_karu_qc'])) ?></div>
-                                                    <div class="timeline-note"><i class="fas fa-wrench"></i> Proses dikerjakan di bengkel</div>
                                                 <?php endif; ?>
                                             </div>
                                         </div>
-                                        <!-- 4. Persetujuan Pengawas -->
-                                        <?php if ($show_persetujuan): ?>
-                                        <div class="timeline-item <?= ($d['persetujuan_pengawas']==='Menunggu')?'waiting':'completed' ?>">
-                                            <i class="fas fa-<?= ($d['persetujuan_pengawas']==='Disetujui')?'check-circle':(($d['persetujuan_pengawas']==='Ditolak')?'times-circle':'clock') ?> tl-icon"></i>
-                                            <div style="flex:1;">
-                                                <div class="timeline-status">Persetujuan Pengawas</div>
-                                                <div class="approval-status approval-<?= strtolower($d['persetujuan_pengawas']) ?>">
-                                                    <i class="fas fa-<?= ($d['persetujuan_pengawas']==='Disetujui')?'thumbs-up':(($d['persetujuan_pengawas']==='Ditolak')?'thumbs-down':'hourglass-half') ?>"></i>
-                                                    <strong>
-                                                        <?php
-                                                        if ($d['persetujuan_pengawas']==='Menunggu')   echo 'Menunggu Persetujuan';
-                                                        elseif ($d['persetujuan_pengawas']==='Disetujui') echo 'Disetujui';
-                                                        elseif ($d['persetujuan_pengawas']==='Ditolak')  echo 'Ditolak';
-                                                        ?>
-                                                    </strong>
-                                                </div>
-                                                <?php if ($d['persetujuan_pengawas']==='Disetujui' && !empty($d['asal_persetujuan'])): ?>
-                                                    <div class="asal-badge asal-<?= strtolower($d['asal_persetujuan']) ?>">
-                                                        <i class="fas fa-<?= $d['asal_persetujuan']=='QC'?'user-tie':'user-cog' ?>"></i>
-                                                        Dari <?= $d['asal_persetujuan'] ?>
-                                                    </div>
-                                                <?php endif; ?>
-                                                <?php if (!empty($d['tgl_persetujuan_pengawas'])): ?>
-                                                    <div class="timeline-date"><?= date('d/m/Y H:i', strtotime($d['tgl_persetujuan_pengawas'])) ?></div>
-                                                <?php endif; ?>
-                                                <?php if ($need_approval_btn): ?>
-                                                <div class="persetujuan-btns">
-                                                    <a href="detail_persetujuan_pengawas.php?id=<?= $d['id_permintaan'] ?>" class="btn-setuju">
-                                                        <i class="fas fa-eye"></i> Lihat & Putuskan
-                                                    </a>
-                                                </div>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
-                                        <?php endif; ?>
+                                       <!-- 4. Persetujuan Pengawas -->
+<?php if ($show_persetujuan): ?>
+<div class="timeline-item <?= ($d['persetujuan_pengawas']==='Menunggu') ? 'waiting' : 'completed' ?>">
+    <i class="fas fa-<?= ($d['persetujuan_pengawas']==='Disetujui') ? 'check-circle' : (($d['persetujuan_pengawas']==='Ditolak') ? 'times-circle' : 'clock') ?> tl-icon"></i>
+
+    <div style="flex:1;">
+
+        <div class="timeline-status">Persetujuan Unit</div>
+
+        <div class="approval-status approval-<?= strtolower($d['persetujuan_pengawas']) ?>">
+            <i class="fas fa-<?= ($d['persetujuan_pengawas']==='Disetujui') ? 'thumbs-up' : (($d['persetujuan_pengawas']==='Ditolak') ? 'thumbs-down' : 'hourglass-half') ?>"></i>
+            <strong>
+                <?php
+                if ($d['persetujuan_pengawas']==='Menunggu') {
+                    echo 'Menunggu Persetujuan';
+                } elseif ($d['persetujuan_pengawas']==='Disetujui') {
+                    echo 'Disetujui';
+                } elseif ($d['persetujuan_pengawas']==='Ditolak') {
+                    echo 'Ditolak';
+                }
+                ?>
+            </strong>
+        </div>
+
+        <?php if ($d['persetujuan_pengawas']==='Disetujui' && !empty($d['asal_persetujuan'])): ?>
+            <div class="asal-badge asal-<?= strtolower($d['asal_persetujuan']) ?>">
+                <i class="fas fa-<?= $d['asal_persetujuan']=='QC' ? 'user-tie' : 'user-cog' ?>"></i>
+                Dari <?= $d['asal_persetujuan'] ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (!empty($d['tgl_persetujuan_pengawas'])): ?>
+            <div class="timeline-date">
+                <?= date('d/m/Y H:i', strtotime($d['tgl_persetujuan_pengawas'])) ?>
+            </div>
+        <?php endif; ?>
+
+        <!-- Catatan khusus: Disetujui -> lanjut ke bengkel -->
+        <?php if ($d['persetujuan_pengawas']==='Disetujui'): ?>
+            <div class="timeline-note">
+                <i class="fas fa-wrench"></i>
+                Proses dikerjakan di bengkel
+            </div>
+        <?php endif; ?>
+
+        <!-- Catatan khusus: Ditolak -> tidak dilanjutkan -->
+        <?php if ($d['persetujuan_pengawas']==='Ditolak'): ?>
+            <div class="timeline-note" style="color:#e74c3c;">
+                <i class="fas fa-ban"></i>
+                Menunggu keputusan SA
+                 </div>
+        <?php endif; ?>
+
+        <?php if ($need_approval_btn): ?>
+        <div class="persetujuan-btns">
+            <a href="detail_persetujuan_pengawas.php?id=<?= $d['id_permintaan'] ?>" class="btn-setuju">
+                <i class="fas fa-eye"></i> Lihat & Putuskan
+            </a>
+        </div>
+        <?php endif; ?>
+
+    </div>
+</div>
+<?php endif; ?>
                                         <!-- 5. Selesai -->
                                         <div class="timeline-item <?= $tgl_selesai?'completed':'pending' ?>">
                                             <i class="fas fa-check-circle tl-icon"></i>
                                             <div style="flex:1;">
-                                                <div class="timeline-status">Selesai</div>
+                                                <div class="timeline-status">Mengetahui Selesai</div>
                                                 <?php if ($tgl_selesai): ?>
                                                     <div class="timeline-date"><?= date('d/m/Y H:i', strtotime($d['tgl_selesai'])) ?></div>
                                                 <?php endif; ?>
@@ -1196,7 +1387,7 @@ function buildPageUrl($p) {
                                     <div class="empty-state">
                                         <i class="fas fa-inbox"></i>
                                         <h3>Tidak ada data</h3>
-                                        <p>Belum ada pengajuan perbaikan yang ditemukan</p>
+                                        <p>Belum ada pengajuan perbaikan yang ditemukan untuk bidang <?= htmlspecialchars($user_bidang) ?></p>
                                     </div>
                                 </td>
                             </tr>
@@ -1234,7 +1425,7 @@ function buildPageUrl($p) {
                         <?php
                         // Smart ellipsis: selalu tampilkan halaman 1, terakhir,
                         // dan 2 di kiri-kanan halaman aktif
-                        $range  = 2; // jumlah halaman di kiri & kanan aktif
+                        $range  = 2;
                         $dots_l = false;
                         $dots_r = false;
 
@@ -1378,17 +1569,16 @@ function filterDropdown(val) {
 // ===== Search / Filter Tabel =====
 // Reset ke page=1 saat filter berubah
 let searchTimeout;
-['filter_status','filter_bidang','filter_jenis','search_nomor','search_nopol','search_tanggal'].forEach(id => {
+['filter_status','filter_jenis','search_nomor','search_nopol','search_tanggal'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('input', () => { clearTimeout(searchTimeout); searchTimeout = setTimeout(performSearch, 500); });
-    if (['filter_status','filter_bidang','filter_jenis'].includes(id)) el.addEventListener('change', performSearch);
+    if (['filter_status','filter_jenis'].includes(id)) el.addEventListener('change', performSearch);
 });
 
 function performSearch() {
     const p = new URLSearchParams();
     const fs = document.getElementById('filter_status').value;
-    const fb = document.getElementById('filter_bidang').value;
     const fj = document.getElementById('filter_jenis').value;
     const sn = document.getElementById('search_nomor').value;
     const sp = document.getElementById('search_nopol').value;
@@ -1398,7 +1588,6 @@ function performSearch() {
     if (db.get('dash_bulan')) p.append('dash_bulan', db.get('dash_bulan'));
     if (db.get('dash_tahun')) p.append('dash_tahun', db.get('dash_tahun'));
     if (fs) p.append('filter_status', fs);
-    if (fb) p.append('filter_bidang', fb);
     if (fj) p.append('filter_jenis', fj);
     if (sn) p.append('search_nomor', sn);
     if (sp) p.append('search_nopol', sp);

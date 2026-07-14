@@ -28,15 +28,27 @@ function getRandomPhotoFromFolder() {
    DAFTAR ROLE SISTEM
 ===================== */
 $available_roles = [
-    'admin'               => ['label' => 'Admin',               'badge' => 'badge-admin'],
-    'pengawas'            => ['label' => 'Pengawas',            'badge' => 'badge-driver'],
-    'angkutan_dalam'      => ['label' => 'Angkutan Dalam',      'badge' => 'badge-angkutan-dalam'],
-    'angkutan_luar'       => ['label' => 'Angkutan Luar',       'badge' => 'badge-angkutan-luar'],
-    'alat_berat_wilayah_1'=> ['label' => 'Alat Berat Wilayah 1','badge' => 'badge-alat-berat-1'],
-    'alat_berat_wilayah_2'=> ['label' => 'Alat Berat Wilayah 2','badge' => 'badge-alat-berat-2'],
-    'alat_berat_wilayah_3'=> ['label' => 'Alat Berat Wilayah 3','badge' => 'badge-alat-berat-3'],
-    'pergudangan'         => ['label' => 'Pergudangan',         'badge' => 'badge-gudang'],
+    'admin'               => ['label' => 'Pemeliharaan',               'badge' => 'badge-admin'],
+    'pengawas'            => ['label' => 'Unit',            'badge' => 'badge-driver'],
+
+    // ⛔ Role dinonaktifkan sementara — hapus tanda komentar di bawah ini jika ingin mengaktifkan kembali
+    // 'angkutan_dalam'      => ['label' => 'Angkutan Dalam',      'badge' => 'badge-angkutan-dalam'],
+    // 'angkutan_luar'       => ['label' => 'Angkutan Luar',       'badge' => 'badge-angkutan-luar'],
+    // 'alat_berat_wilayah_1'=> ['label' => 'Alat Berat Wilayah 1','badge' => 'badge-alat-berat-1'],
+    // 'alat_berat_wilayah_2'=> ['label' => 'Alat Berat Wilayah 2','badge' => 'badge-alat-berat-2'],
+    // 'alat_berat_wilayah_3'=> ['label' => 'Alat Berat Wilayah 3','badge' => 'badge-alat-berat-3'],
+    // 'pergudangan'         => ['label' => 'Pergudangan',         'badge' => 'badge-gudang'],
 ];
+
+// === TAMBAHAN BIDANG: role yang otomatis akses semua bidang (tidak perlu pilih bidang) ===
+$roles_akses_semua_bidang = ['admin'];
+
+// === TAMBAHAN BIDANG: ambil daftar bidang unik dari tabel kendaraan untuk dropdown ===
+$daftar_bidang = [];
+$q_bidang = mysqli_query($connection, "SELECT DISTINCT bidang FROM kendaraan WHERE bidang IS NOT NULL AND bidang != '' ORDER BY bidang ASC");
+while ($b = mysqli_fetch_assoc($q_bidang)) {
+    $daftar_bidang[] = $b['bidang'];
+}
 
 /* =====================
    FUNGSI CEK RELASI USER
@@ -59,6 +71,16 @@ if (isset($_POST['simpan'])) {
     $username = mysqli_real_escape_string($connection, trim($_POST['username']));
     $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
     $role     = mysqli_real_escape_string($connection, $_POST['role']);
+    $nama     = mysqli_real_escape_string($connection, trim($_POST['nama'] ?? ''));
+    $jabatan  = mysqli_real_escape_string($connection, trim($_POST['jabatan'] ?? ''));
+
+    // === TAMBAHAN BIDANG: role akses-semua otomatis NULL, selain itu ambil dari form ===
+    if (in_array($role, $roles_akses_semua_bidang)) {
+        $bidang_sql = "NULL";
+    } else {
+        $bidang_input = trim($_POST['bidang'] ?? '');
+        $bidang_sql   = $bidang_input !== '' ? "'" . mysqli_real_escape_string($connection, $bidang_input) . "'" : "NULL";
+    }
 
     $cek = mysqli_query($connection, "SELECT id_user FROM users WHERE username='$username' LIMIT 1");
     if (mysqli_num_rows($cek) > 0) {
@@ -73,7 +95,8 @@ if (isset($_POST['simpan'])) {
         copy('../fotodata/' . $randomPhoto, '../uploads/ttd/' . $ttd);
     }
 
-    mysqli_query($connection, "INSERT INTO users (username, password, role, status, ttd, created_at) VALUES ('$username', '$password', '$role', 'Aktif', '$ttd', NOW())");
+    // === TAMBAHAN BIDANG: kolom bidang ditambahkan ke INSERT ===
+    mysqli_query($connection, "INSERT INTO users (username, password, role, bidang, status, ttd, nama, jabatan, created_at) VALUES ('$username', '$password', '$role', $bidang_sql, 'Aktif', '$ttd', '$nama', '$jabatan', NOW())");
     echo "<script>alert('✅ User berhasil ditambahkan dengan QR Code otomatis dan status Aktif!'); window.location.href='users.php';</script>"; exit;
 }
 
@@ -85,6 +108,16 @@ if (isset($_POST['update'])) {
     $username = mysqli_real_escape_string($connection, trim($_POST['username']));
     $role     = mysqli_real_escape_string($connection, $_POST['role']);
     $status   = mysqli_real_escape_string($connection, $_POST['status']);
+    $nama     = mysqli_real_escape_string($connection, trim($_POST['nama'] ?? ''));
+    $jabatan  = mysqli_real_escape_string($connection, trim($_POST['jabatan'] ?? ''));
+
+    // === TAMBAHAN BIDANG: role akses-semua otomatis NULL, selain itu ambil dari form ===
+    if (in_array($role, $roles_akses_semua_bidang)) {
+        $bidang_sql = "NULL";
+    } else {
+        $bidang_input = trim($_POST['bidang'] ?? '');
+        $bidang_sql   = $bidang_input !== '' ? "'" . mysqli_real_escape_string($connection, $bidang_input) . "'" : "NULL";
+    }
 
     $cek = mysqli_query($connection, "SELECT id_user FROM users WHERE username='$username' AND id_user != '$id_user' LIMIT 1");
     if (mysqli_num_rows($cek) > 0) {
@@ -115,7 +148,8 @@ if (isset($_POST['update'])) {
         $password_update = ", password='$new_password'";
     }
 
-    mysqli_query($connection, "UPDATE users SET username='$username', role='$role', status='$status' $ttd_sql $password_update WHERE id_user='$id_user'");
+    // === TAMBAHAN BIDANG: kolom bidang ditambahkan ke UPDATE ===
+    mysqli_query($connection, "UPDATE users SET username='$username', role='$role', bidang=$bidang_sql, status='$status', nama='$nama', jabatan='$jabatan' $ttd_sql $password_update WHERE id_user='$id_user'");
     echo "<script>alert('✅ Data user berhasil diperbarui!'); window.location.href='users.php';</script>"; exit;
 }
 
@@ -182,6 +216,9 @@ $user_per_page = 20;
 $user_page     = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
 $user_offset   = ($user_page - 1) * $user_per_page;
 $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) : 1;
+
+// === TAMBAHAN BIDANG: hitung berapa user pengawas yang belum diset bidangnya, buat notifikasi ===
+$belum_diset = mysqli_fetch_assoc(mysqli_query($connection, "SELECT COUNT(*) AS total FROM users WHERE role='pengawas' AND (bidang IS NULL OR bidang='')"))['total'];
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -232,16 +269,16 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
         .btn-apply:hover { background: rgb(7,100,70); }
         .btn-reset { background: #e0e0e0; color: #555; }
         .btn-reset:hover { background: #d0d0d0; }
-        .two-column-layout { display: grid; grid-template-columns: 450px 1fr; gap: 20px; align-items: start; }
+        .two-column-layout { display: grid; grid-template-columns: 450px minmax(0, 1fr); gap: 20px; align-items: start; }
         @media (max-width: 1200px) { .two-column-layout { grid-template-columns: 1fr; } }
         .card-custom { background: white; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); padding: 25px; animation: slideUp 0.5s ease-out; width: 100%; max-width: 100%; }
         .form-card { position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow-y: auto; }
         .form-card::-webkit-scrollbar { width: 8px; }
         .form-card::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
         .form-card::-webkit-scrollbar-thumb { background: #667eea; border-radius: 10px; }
-        .data-card { display: flex; flex-direction: column; max-height: calc(100vh - 40px); }
+        .data-card { display: flex; flex-direction: column; max-height: calc(100vh - 40px); min-width: 0; }
         .card-header-fixed { flex-shrink: 0; padding-bottom: 20px; border-bottom: 2px solid #f0f0f0; margin-bottom: 20px; }
-        .table-scroll-container { flex: 1; overflow-y: auto; overflow-x: auto; width: 100%; }
+        .table-scroll-container { flex: 1; overflow-y: auto; overflow-x: auto; width: 100%; min-width: 0; }
         .table-scroll-container::-webkit-scrollbar { width: 8px; height: 8px; }
         .table-scroll-container::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
         .table-scroll-container::-webkit-scrollbar-thumb { background: #667eea; border-radius: 10px; }
@@ -287,12 +324,12 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
         .search-icon  { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #999; }
         .clear-search { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); color: #999; cursor: pointer; display: none; }
         .clear-search:hover { color: #667eea; }
-        table { width: 100%; border-collapse: collapse; background: white; min-width: 900px; }
+        table { width: 100%; border-collapse: collapse; background: white; min-width: 950px; }
         thead { background: rgb(9,120,83); color: white; position: sticky; top: 0; z-index: 10; }
-        thead th { padding: 15px; text-align: left; font-weight: 600; font-size: 13px; white-space: nowrap; }
+        thead th { padding: 12px 10px; text-align: left; font-weight: 600; font-size: 13px; white-space: nowrap; }
         tbody tr { border-bottom: 1px solid #f0f0f0; transition: all 0.3s ease; }
         tbody tr:hover { background: #f8f9fa; }
-        tbody td { padding: 15px; font-size: 13px; color: #555; }
+        tbody td { padding: 12px 10px; font-size: 13px; color: #555; }
         .badge-role { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 11px; font-weight: 600; text-transform: capitalize; white-space: nowrap; }
         .badge-admin          { background: linear-gradient(135deg,#e3f2fd,#bbdefb); color: #1976d2; border: 1px solid #90caf9; }
         .badge-driver         { background: linear-gradient(135deg,#fff3cd,#ffe5a1); color: #856404; border: 1px solid #ffd966; }
@@ -315,6 +352,10 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
         .btn-edit:hover   { background: #ffc107; color: white; transform: translateY(-2px); }
         .btn-delete { background: #f8d7da; color: #721c24; }
         .btn-delete:hover { background: #dc3545; color: white; transform: translateY(-2px); }
+        /* Kolom AKSI selalu menempel di kanan supaya tombol Edit/Hapus tetap bisa dipencet meski tabel di-scroll ke samping */
+        .col-aksi { position: sticky; right: 0; z-index: 6; background: white; box-shadow: -3px 0 6px rgba(0,0,0,0.08); }
+        thead .col-aksi { background: rgb(9,120,83); z-index: 11; box-shadow: -3px 0 6px rgba(0,0,0,0.15); }
+        tbody tr:hover .col-aksi { background: #f8f9fa; }
         .no-data { text-align: center; padding: 40px; color: #999; font-style: italic; }
         .no-data i { font-size: 48px; margin-bottom: 15px; opacity: 0.3; }
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center; }
@@ -322,6 +363,11 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
         .modal-content img { max-width: 100%; max-height: 90vh; border-radius: 10px; }
         .modal-close { position: absolute; top: -40px; right: 0; color: white; font-size: 30px; cursor: pointer; background: rgba(255,255,255,0.2); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease; }
         .modal-close:hover { background: rgba(255,255,255,0.3); transform: rotate(90deg); }
+
+        /* === TAMBAHAN BIDANG: badge untuk kolom bidang di tabel === */
+        .badge-bidang-semua  { background: linear-gradient(135deg,#ede7f6,#d1c4e9); color: #512da8; border: 1px solid #9575cd; }
+        .badge-bidang-isi    { background: linear-gradient(135deg,#e3f2fd,#bbdefb); color: #1976d2; border: 1px solid #90caf9; }
+        .badge-bidang-kosong { background: #fff3cd; color: #856404; border: 1px solid #ffd966; }
 
         /* ===================================
            MOBILE RESPONSIVE
@@ -368,6 +414,7 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
             .btn-action { font-size: 11px !important; padding: 6px 10px !important; }
             .ttd-container { justify-content: flex-start !important; }
             .ttd-image { height: 40px !important; }
+            .col-aksi { position: static !important; box-shadow: none !important; background: transparent !important; }
         }
 
         @media (max-width: 480px) {
@@ -394,6 +441,19 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                     Manajemen Pengguna
                 </h1>
             </div>
+
+            <!-- === TAMBAHAN BIDANG: notifikasi user pengawas yang belum diset bidangnya === -->
+            <?php if ($belum_diset > 0): ?>
+            <div class="alert-warning">
+                <i class="fas fa-exclamation-triangle"></i>
+                <div class="alert-content">
+                    <div class="alert-title">⚠️ Ada <?= $belum_diset ?> user Unit yang belum diset bidangnya</div>
+                    <div class="alert-message">
+                        User dengan role Unit yang belum memiliki bidang akan terkunci saat mengakses halaman operasional. Silakan edit user tersebut dan pilih bidangnya.
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
 
             <!-- Stats Cards -->
             <div class="stats-grid">
@@ -485,6 +545,20 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                         </div>
 
                         <div class="form-group">
+                            <label class="form-label"><i class="fas fa-id-card"></i> Nama Lengkap</label>
+                            <input type="text" name="nama" class="form-control"
+                                   placeholder="Masukkan nama lengkap"
+                                   value="<?= $edit ? htmlspecialchars($e['nama'] ?? '') : '' ?>">
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label"><i class="fas fa-briefcase"></i> Jabatan</label>
+                            <input type="text" name="jabatan" class="form-control"
+                                   placeholder="Masukkan jabatan"
+                                   value="<?= $edit ? htmlspecialchars($e['jabatan'] ?? '') : '' ?>">
+                        </div>
+
+                        <div class="form-group">
                             <label class="form-label">
                                 <i class="fas fa-lock"></i> Password <?= $edit ? '(opsional)' : '' ?>
                             </label>
@@ -506,7 +580,7 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                             </label>
                             <?php if ($edit && $hasRelation): ?>
                             <input type="hidden" name="role" value="<?= $e['role'] ?>">
-                            <select class="form-select" disabled>
+                            <select class="form-select" id="roleSelect" disabled>
                                 <option value="">Pilih Role</option>
                                 <?php foreach ($available_roles as $role_key => $role_data): ?>
                                 <option value="<?= $role_key ?>" <?= ($e['role'] == $role_key) ? 'selected' : '' ?>><?= $role_data['label'] ?></option>
@@ -514,12 +588,32 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                             </select>
                             <small class="info-text" style="color:#dc3545;"><i class="fas fa-lock"></i> Role tidak dapat diubah karena user memiliki data terkait</small>
                             <?php else: ?>
-                            <select name="role" class="form-select" required>
+                            <select name="role" id="roleSelect" class="form-select" required onchange="toggleBidangField()">
                                 <option value="">Pilih Role</option>
                                 <?php foreach ($available_roles as $role_key => $role_data): ?>
                                 <option value="<?= $role_key ?>" <?= ($edit && $e['role'] == $role_key) ? 'selected' : '' ?>><?= $role_data['label'] ?></option>
                                 <?php endforeach; ?>
                             </select>
+                            <?php endif; ?>
+                        </div>
+
+                        <!-- === TAMBAHAN BIDANG: field pilih bidang, hanya muncul untuk role Unit === -->
+                        <div class="form-group" id="bidangField">
+                            <label class="form-label"><i class="fas fa-building"></i> Bidang</label>
+                            <select name="bidang" id="bidangSelect" class="form-select">
+                                <option value="">-- Pilih Bidang --</option>
+                                <?php foreach ($daftar_bidang as $b): ?>
+                                <option value="<?= htmlspecialchars($b) ?>" <?= ($edit && isset($e['bidang']) && $e['bidang'] == $b) ? 'selected' : '' ?>><?= htmlspecialchars($b) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small class="info-text"><i class="fas fa-info-circle"></i> Wajib diisi untuk role Unit. Role Pemeliharaan otomatis akses semua bidang.</small>
+                            <?php if ($edit && $e['role'] === 'pengawas' && empty($e['bidang'])): ?>
+                            <div class="alert-warning" style="margin-top:10px;">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <div class="alert-content">
+                                    <div class="alert-message" style="margin:0;">User ini belum memiliki bidang. Segera pilih bidang agar user dapat mengakses halaman operasional.</div>
+                                </div>
+                            </div>
                             <?php endif; ?>
                         </div>
 
@@ -553,12 +647,12 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                                 </div>
                                 <div class="form-check">
                                     <input type="checkbox" name="refresh_foto" id="refreshFoto" class="form-check-input" value="1">
-                                    <label for="refreshFoto"><i class="fas fa-sync-alt"></i> Ganti dengan QR Code baru dari folder (Random)</label>
+                                    <label for="refreshFoto"><i class="fas fa-sync-alt"></i> Ganti dengan QR Code baru </label>
                                 </div>
                                 <?php else: ?>
                                 <div class="alert-info">
                                     <i class="fas fa-info-circle"></i>
-                                    <span>QR Code akan dipilih secara otomatis dan random dari <?= $photoCount ?> foto yang tersedia di folder</span>
+                                    <span>QR CODE Otomatis </span>
                                 </div>
                                 <?php endif; ?>
                             <?php else: ?>
@@ -594,7 +688,7 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                         <h2 class="card-title"><i class="fas fa-table"></i> Data Pengguna</h2>
                         <div class="search-wrapper">
                             <i class="fas fa-search search-icon"></i>
-                            <input type="text" id="searchInput" class="search-input" placeholder="Cari username atau role...">
+                            <input type="text" id="searchInput" class="search-input" placeholder="Cari username, nama, atau role...">
                             <i class="fas fa-times clear-search" id="clearSearch"></i>
                         </div>
                     </div>
@@ -605,10 +699,13 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                                 <tr>
                                     <th style="width:50px;">No</th>
                                     <th>USERNAME</th>
-                                    <th style="width:200px;">SEBAGAI</th>
-                                    <th style="width:100px;">STATUS</th>
-                                    <th style="width:120px;text-align:center;">QR CODE</th>
-                                    <th style="width:160px;text-align:center;">AKSI</th>
+                                    <th>NAMA</th>
+                                    <th>JABATAN</th>
+                                    <th style="width:150px;">SEBAGAI</th>
+                                    <th style="width:150px;">BIDANG</th>
+                                    <th style="width:90px;">STATUS</th>
+                                    <th style="width:100px;text-align:center;">QR CODE</th>
+                                    <th class="col-aksi" style="width:140px;text-align:center;">AKSI</th>
                                 </tr>
                             </thead>
                             <tbody id="tableBody">
@@ -621,12 +718,28 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                                             ? $available_roles[$u['role']]
                                             : ['label' => ucfirst(str_replace('_', ' ', $u['role'])), 'badge' => 'badge-admin'];
                                         $userStatus = isset($u['status']) ? $u['status'] : 'Aktif';
+                                        $namaUser    = !empty($u['nama']) ? $u['nama'] : '-';
+                                        $jabatanUser = !empty($u['jabatan']) ? $u['jabatan'] : '-';
                                 ?>
                                 <tr data-status="<?= $userStatus ?>" data-role="<?= $u['role'] ?>">
                                     <td style="text-align:center;font-weight:600;color:#667eea;" data-label="No"><?= $no++ ?></td>
                                     <td style="font-weight:600;color:#2c3e50;" data-label="Username"><?= htmlspecialchars($u['username']) ?></td>
+                                    <td data-label="Nama"><?= htmlspecialchars($namaUser) ?></td>
+                                    <td data-label="Jabatan"><?= htmlspecialchars($jabatanUser) ?></td>
                                     <td data-label="Sebagai">
                                         <span class="badge-role <?= $roleInfo['badge'] ?>"><?= $roleInfo['label'] ?></span>
+                                    </td>
+                                    <td data-label="Bidang">
+                                        <?php
+                                        // === TAMBAHAN BIDANG: tampilkan status akses bidang ===
+                                        if (in_array($u['role'], $roles_akses_semua_bidang)) {
+                                            echo '<span class="badge-role badge-bidang-semua">Semua Bidang</span>';
+                                        } elseif (!empty($u['bidang'])) {
+                                            echo '<span class="badge-role badge-bidang-isi">' . htmlspecialchars($u['bidang']) . '</span>';
+                                        } else {
+                                            echo '<span class="badge-role badge-bidang-kosong">Belum diset</span>';
+                                        }
+                                        ?>
                                     </td>
                                     <td data-label="Status">
                                         <span class="badge-status <?= strtolower(str_replace(' ', '-', $userStatus)) ?>"><?= $userStatus ?></span>
@@ -641,7 +754,7 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                                             <?php endif; ?>
                                         </div>
                                     </td>
-                                    <td data-label="Aksi">
+                                    <td data-label="Aksi" class="col-aksi">
                                         <div class="action-buttons">
                                             <a href="users.php?edit=<?= $u['id_user'] ?>" class="btn-action btn-edit">
                                                 <i class="fas fa-edit"></i> Edit
@@ -659,7 +772,7 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
                                 } else {
                                 ?>
                                 <tr>
-                                    <td colspan="6" class="no-data">
+                                    <td colspan="9" class="no-data">
                                         <i class="fas fa-inbox"></i><br>Belum ada data user
                                     </td>
                                 </tr>
@@ -796,7 +909,26 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
         });
     }
 
-    // Search
+    // === TAMBAHAN BIDANG: sembunyikan/tampilkan field Bidang sesuai role yang dipilih ===
+    function toggleBidangField() {
+        const roleSelect  = document.getElementById('roleSelect');
+        const bidangField = document.getElementById('bidangField');
+        const bidangSelect = document.getElementById('bidangSelect');
+        if (!roleSelect || !bidangField) return;
+
+        const rolesAksesSemua = <?= json_encode($roles_akses_semua_bidang) ?>;
+        const role = roleSelect.value;
+
+        if (rolesAksesSemua.includes(role)) {
+            bidangField.style.display = 'none';
+            if (bidangSelect) bidangSelect.value = '';
+        } else {
+            bidangField.style.display = '';
+        }
+    }
+    document.addEventListener('DOMContentLoaded', toggleBidangField);
+
+    // Search (username, nama, jabatan, role)
     const searchInput = document.getElementById('searchInput');
     const clearSearch = document.getElementById('clearSearch');
     const tableBody   = document.getElementById('tableBody');
@@ -808,10 +940,15 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
         clearSearch.style.display = searchValue ? 'block' : 'none';
 
         for (let i = 0; i < rows.length; i++) {
-            const username = rows[i].getElementsByTagName('td')[1];
-            const role     = rows[i].getElementsByTagName('td')[2];
-            if (username && role) {
+            const cells = rows[i].getElementsByTagName('td');
+            const username = cells[1];
+            const nama     = cells[2];
+            const jabatan  = cells[3];
+            const role     = cells[4];
+            if (username && nama && jabatan && role) {
                 const match = username.textContent.toLowerCase().indexOf(searchValue) > -1
+                           || nama.textContent.toLowerCase().indexOf(searchValue) > -1
+                           || jabatan.textContent.toLowerCase().indexOf(searchValue) > -1
                            || role.textContent.toLowerCase().indexOf(searchValue) > -1;
                 rows[i].style.display = match ? '' : 'none';
                 if (match) visibleCount++;
@@ -823,7 +960,7 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
             if (!noResultRow) {
                 noResultRow = document.createElement('tr');
                 noResultRow.id = 'noResultRow';
-                noResultRow.innerHTML = '<td colspan="6" class="no-data"><i class="fas fa-search"></i><br>Tidak ada hasil untuk "' + searchValue + '"</td>';
+                noResultRow.innerHTML = '<td colspan="9" class="no-data"><i class="fas fa-search"></i><br>Tidak ada hasil untuk "' + searchValue + '"</td>';
                 tableBody.appendChild(noResultRow);
             }
         } else if (noResultRow) {
@@ -858,7 +995,7 @@ $user_total_pages = $total_users > 0 ? (int)ceil($total_users / $user_per_page) 
             if (!noResultRow) {
                 noResultRow = document.createElement('tr');
                 noResultRow.id = 'noResultRow';
-                noResultRow.innerHTML = '<td colspan="6" class="no-data"><i class="fas fa-filter"></i><br>Tidak ada data yang sesuai dengan filter</td>';
+                noResultRow.innerHTML = '<td colspan="9" class="no-data"><i class="fas fa-filter"></i><br>Tidak ada data yang sesuai dengan filter</td>';
                 tableBody.appendChild(noResultRow);
             }
         } else if (noResultRow) {
